@@ -136,6 +136,7 @@ If you pass parameters on the command line, the script skips the questions and w
 | `-GlobalTone x` `-LocalTone x` | Global and local tone strength. |
 | `-LocalStructure x` `-SkinStructure x` | Surface detail and skin detail strength. |
 | `-UiCorrection` `-Encoding` `-WhiteNits` `-WhiteOverride` | HDR and UI settings. Leave at defaults. |
+| `-Fps on\|off` | Shows or hides ReShade's FPS and frame-time counter in the corner of the LS output. The frame time is the cost of one Present, NR included. Works with NR on or off. |
 | `-Show` | Prints the current config without writing. |
 | `-Launch` | Opens LS. While LS runs, the script temporarily disables WPF hardware acceleration (see [How it works](#how-it-works)). |
 | `-LsPath "…"` | Path to the LS folder, for when the script cannot find it. |
@@ -175,7 +176,7 @@ The configuration below worked well during testing. Open LS, pick the profile yo
 
 | Section | Setting |
 |---|---|
-| Frame Generation | LSFG 3.1, Mode **Adaptive**, Target **60**, Flow scale at max, Performance off. |
+| Frame Generation | LSFG 3.1, Mode **Adaptive**, Target **60**, Flow scale at max, Performance off. Frame Generation helps a little, but only so far: NR runs on every frame LS outputs, generated ones included, not on the game's frames. |
 | Scaling | Type **FSR**, Mode **Auto**, Sharpness in the middle, Optimized version off. |
 | Capture | Capture API **WGC**, Queue target **1**. |
 | Rendering | Sync mode **Off (Allow tearing)**, Max frame latency **3**, HDR support on. |
@@ -219,6 +220,7 @@ flowchart LR
 
 - No motion vectors or depth, so the image can flicker or shimmer during fast motion.
 - Cost scales with output resolution. NVIDIA says the native RTX 50 integration costs 50–60 % of FPS.
+- NR runs on every frame LS outputs, not on the game's frames, so LS Frame Generation multiplies the NR work by the same factor. The NR cost per Present sets a ceiling on the LS output FPS that Frame Generation cannot raise.
 - Everything on screen gets processed, including the HUD, subtitles and UI.
 - The NR runtime belongs to NVIDIA. RTX 20–40 and AMD rely on a community-patched runtime, and a new driver can break it.
 - Single-player only. With anti-cheat games, the game's rules apply; RHI warns about this at the bottom of its window too.

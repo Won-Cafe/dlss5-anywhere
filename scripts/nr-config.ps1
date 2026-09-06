@@ -9,6 +9,7 @@
     [ADDON]  DisabledAddons           - turn the "RenoDX DLSS" add-on on or off
     [RENODX-DLSS]                     - keys a non-DLSS host needs, hook point, colour/UI handling
     [RENODX-DLSS-preset1]             - the image parameters (model, intensity, ...)
+    [OVERLAY]  ShowFPS, ShowFrameTime  - ReShade's own FPS counter (-Fps), for diagnosis
 
   Close Lossless Scaling first: ReShade rewrites ReShade.ini when the process exits, so edits made
   while LS is running get overwritten.
@@ -28,6 +29,12 @@
 
 .PARAMETER Model
   Neural rendering model: A, B or C (stored as DirectNeuralRenderingStyle 0, 1, 2).
+
+.PARAMETER Fps
+  on / off. Shows ReShade's own FPS and frame-time counter in the corner of the LS output. ReShade
+  counts its Present calls, so this number tells you where the add-on sits relative to LSFG: equal
+  to the LS output FPS means once per presented frame (after frame generation); equal to the LS
+  input FPS means once per captured frame (before it). Independent of the add-on being on or off.
 
 .PARAMETER Launch
   Start Lossless Scaling through Steam with WPF hardware acceleration turned off for the lifetime of
@@ -71,7 +78,11 @@ param(
   [int]$UiCorrection,        # DirectNeuralRenderingUiCorrectionMode
   [int]$Encoding,            # DirectNeuralRenderingEncoding
   [int]$WhiteNits,           # DirectNeuralRenderingDiffuseWhiteNits
-  [int]$WhiteOverride        # DirectNeuralRenderingDiffuseWhiteOverride (0 / 1)
+  [int]$WhiteOverride,       # DirectNeuralRenderingDiffuseWhiteOverride (0 / 1)
+
+  # [OVERLAY] (ReShade itself, not the add-on)
+  [ValidateSet('on', 'off')]
+  [string]$Fps               # ShowFPS + ShowFrameTime
 )
 
 $ErrorActionPreference = 'Stop'
@@ -87,6 +98,8 @@ $AddonName = 'RenoDX DLSS'     # as registered in ReShade.log: Registered add-on
 $Required = [ordered]@{ 'DirectNeuralRenderingRequireDlss' = '0' }
 $MainSection = 'RENODX-DLSS'
 $PresetSection = 'RENODX-DLSS-preset1'
+$OverlaySection = 'OVERLAY'
+$FpsKeys = @('ShowFPS', 'ShowFrameTime')   # ReShade's built-in counter, toggled together by -Fps
 
 # parameter name -> (section, ini key). Order = order of the interactive prompts.
 $Tunable = [ordered]@{
@@ -139,7 +152,7 @@ $requested = [ordered]@{}
 foreach ($p in $Tunable.Keys) {
   if ($PSBoundParameters.ContainsKey($p)) { $requested[$p] = $PSBoundParameters[$p] }
 }
-$Interactive = (-not $Show) -and (-not $Launch) -and (-not $On) -and (-not $Off) -and ($requested.Count -eq 0)
+$Interactive = (-not $Show) -and (-not $Launch) -and (-not $On) -and (-not $Off) -and (-not $Fps) -and ($requested.Count -eq 0)
 
 if (-not $LsPath) { $LsPath = Find-LsPath }
 if (-not $LsPath -or -not (Test-Path (Join-Path $LsPath 'LosslessScaling.exe'))) {
@@ -221,6 +234,13 @@ function Set-AddonEnabled([bool]$enabled) {
   Set-IniValue 'ADDON' 'DisabledAddons' ($list -join ',')
 }
 
+# --- ReShade FPS counter through [OVERLAY] ShowFPS / ShowFrameTime ---
+
+function Test-FpsShown { return ((Get-IniValue $OverlaySection 'ShowFPS') -eq '1') }
+function Set-FpsShown([bool]$shown) {
+  foreach ($k in $FpsKeys) { Set-IniValue $OverlaySection $k $(if ($shown) { '1' } else { '0' }) }
+}
+
 # --- value formatting ---
 
 function Format-Num($v) {
@@ -255,6 +275,8 @@ function Show-Current {
   Write-Host "ReShade.ini: $IniPath"
   $state = if (Test-AddonEnabled) { 'ON' } else { "OFF  (listed in [ADDON] DisabledAddons)" }
   Write-Host ("Neural rendering add-on `"$AddonName`": $state")
+  $fpsState = if (Test-FpsShown) { 'ON' } else { 'off' }
+  Write-Host ("ReShade FPS counter [$OverlaySection] ShowFPS/ShowFrameTime: $fpsState   (-Fps on|off)")
   Write-Host ''
   Write-Host "[$MainSection]"
   $byKey = @{}; foreach ($p in $Tunable.Keys) { $byKey[$Tunable[$p][1]] = $p }
@@ -287,6 +309,8 @@ function Assert-LsClosed {
 
 $wantEnabled = $null
 if ($On) { $wantEnabled = $true } elseif ($Off) { $wantEnabled = $false }
+$wantFps = $null
+if ($Fps) { $wantFps = ($Fps -eq 'on') }
 
 function Read-Param([string]$p) {
   # asks once for one parameter; stores into $requested; Enter keeps the current value
@@ -324,6 +348,14 @@ if ($Interactive) {
     Write-Host '    on or off'
   }
   foreach ($p in $Basic) { Read-Param $p }
+  $curFps = if (Test-FpsShown) { 'on' } else { 'off' }
+  while ($true) {
+    $a = Read-Host ("  ReShade FPS counter on the LS output (on / off) [{0}]" -f $curFps)
+    if ([string]::IsNullOrWhiteSpace($a)) { break }
+    if ($a -match '^(?i)on$')  { $wantFps = $true;  break }
+    if ($a -match '^(?i)off$') { $wantFps = $false; break }
+    Write-Host '    on or off'
+  }
   $adv = Read-Host '  Advanced keys (intensity, masks, tone, structure, colour...)? [y/N]'
   if ($adv -match '^(?i)y') {
     foreach ($p in $Tunable.Keys) { if ($p -notin $Basic) { Read-Param $p } }
@@ -345,6 +377,11 @@ $changes = @()
 if ($null -ne $wantEnabled -and $wantEnabled -ne (Test-AddonEnabled)) {
   Set-AddonEnabled $wantEnabled
   $changes += "[ADDON] `"$AddonName`": $(if ($wantEnabled) { 'OFF -> ON' } else { 'ON -> OFF' })"
+}
+
+if ($null -ne $wantFps -and $wantFps -ne (Test-FpsShown)) {
+  Set-FpsShown $wantFps
+  $changes += "[$OverlaySection] $($FpsKeys -join '/'): $(if ($wantFps) { 'off -> ON' } else { 'ON -> off' })"
 }
 
 foreach ($k in $Required.Keys) {

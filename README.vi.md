@@ -136,6 +136,7 @@ Nếu bạn truyền tham số ngay trên dòng lệnh, script sẽ không hỏi
 | `-GlobalTone x` `-LocalTone x` | Tone màu toàn khung và tone cục bộ. |
 | `-LocalStructure x` `-SkinStructure x` | Độ chi tiết vân bề mặt và vân da người. |
 | `-UiCorrection` `-Encoding` `-WhiteNits` `-WhiteOverride` | Các thiết lập HDR và giao diện. Nên để mặc định. |
+| `-Fps on\|off` | Hiện hoặc ẩn bộ đếm FPS và frame time của ReShade ở góc hình xuất ra của LS. Frame time là chi phí của một lần Present, đã gồm NR. Dùng được dù NR đang bật hay tắt. |
 | `-Show` | Chỉ xem cấu hình hiện tại, không ghi. |
 | `-Launch` | Mở LS. Trong lúc LS chạy, script tắt tạm hardware acceleration của WPF (xem phần [Cách chạy](#cách-chạy)). |
 | `-LsPath "…"` | Chỉ đường dẫn tới thư mục LS, dùng khi script không tự tìm thấy. |
@@ -175,7 +176,7 @@ Cấu hình dưới đây đã chạy tốt trong quá trình thử nghiệm. M�
 
 | Mục | Thiết lập |
 |---|---|
-| Frame Generation | LSFG 3.1, Mode **Adaptive**, Target **60**, Flow scale kéo tối đa, Performance tắt. |
+| Frame Generation | LSFG 3.1, Mode **Adaptive**, Target **60**, Flow scale kéo tối đa, Performance tắt. Frame Generation giúp tối ưu thêm một chút nhưng vẫn có giới hạn: NR chạy trên mỗi frame LS xuất ra, gồm cả frame nội suy, không phải trên frame của game. |
 | Scaling | Type **FSR**, Mode **Auto**, Sharpness để giữa, Optimized version tắt. |
 | Capture | Capture API **WGC**, Queue target **1**. |
 | Rendering | Sync mode **Off (Allow tearing)**, Max frame latency **3**, HDR support bật. |
@@ -219,6 +220,7 @@ flowchart LR
 
 - Không có motion vector và depth, nên hình có thể nhấp nháy hoặc rung gợn khi chuyển động nhanh.
 - Chi phí tính theo độ phân giải đầu ra. NVIDIA cho biết tích hợp gốc trên RTX 50 mất 50–60 % FPS.
+- NR chạy trên mỗi frame LS xuất ra, không phải frame của game, nên Frame Generation của LS nhân khối lượng NR theo cùng hệ số. Chi phí NR mỗi lần Present đặt ra trần FPS đầu ra của LS mà Frame Generation không vượt qua được.
 - Mọi thứ trên màn hình đều bị xử lý, kể cả HUD, phụ đề và giao diện.
 - Runtime NR là của NVIDIA. RTX 20–40 và AMD phải dùng runtime do cộng đồng chỉnh, driver mới có thể làm nó ngừng chạy.
 - Chỉ dùng cho game chơi đơn. Với game có anti-cheat, bạn phải theo luật của game đó; RHI cũng cảnh báo điều này ngay chân cửa sổ.
