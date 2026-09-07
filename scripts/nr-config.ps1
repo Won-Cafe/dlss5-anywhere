@@ -518,6 +518,8 @@ if ($proxyChanges.Count -gt 0) {
 # check and settings apply. Any other WPF app started while LS is running also sees the key.
 # The watcher also leaves a marker value next to the key while it runs. If the watcher dies before
 # restoring (terminal closed, reboot), the next launch reads the marker instead of the stale key.
+# The watcher polls Get-Process instead of calling Wait-Process: Steam-launched LS denies the
+# SYNCHRONIZE right, so Wait-Process returns immediately and the key would be restored too early.
 
 $SteamAppId = 993090
 
@@ -535,9 +537,17 @@ if ($null -ne $m) { $prev = if ("$m" -eq 'none') { $null } else { [int]$m } }
 Set-ItemProperty -Path $key -Name $mark -Value $(if ($null -eq $prev) { 'none' } else { "$prev" }) -Type String
 Set-ItemProperty -Path $key -Name $name -Value 1 -Type DWord
 Start-Process 'steam://rungameid/__APPID__'
-$p = $null
-for ($i = 0; $i -lt 240 -and -not $p; $i++) { Start-Sleep -Milliseconds 500; $p = Get-Process -Name '__PROC__' -ErrorAction SilentlyContinue }
-if ($p) { Wait-Process -Id ($p | Select-Object -First 1).Id -ErrorAction SilentlyContinue }
+# Wait for LS to appear (Steam may show a dialog first), then wait for it to be gone. Wait-Process is
+# not used: on a Steam-launched LS it fails at once with "Access is denied" (no SYNCHRONIZE right),
+# which would restore the key while LS is still starting. Get-Process only needs query rights.
+# LS exiting and coming back within a few seconds (Steam relaunch) counts as one session.
+$deadline = (Get-Date).AddMinutes(5)
+while ((Get-Date) -lt $deadline -and -not (Get-Process -Name '__PROC__' -ErrorAction SilentlyContinue)) { Start-Sleep -Milliseconds 500 }
+$gone = 0
+while ($gone -lt 10) {
+  Start-Sleep -Seconds 1
+  if (Get-Process -Name '__PROC__' -ErrorAction SilentlyContinue) { $gone = 0 } else { $gone++ }
+}
 if ($null -eq $prev) { Remove-ItemProperty -Path $key -Name $name -ErrorAction SilentlyContinue } else { Set-ItemProperty -Path $key -Name $name -Value $prev -Type DWord }
 Remove-ItemProperty -Path $key -Name $mark -ErrorAction SilentlyContinue
 '@
