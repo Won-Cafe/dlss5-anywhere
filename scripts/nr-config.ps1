@@ -10,6 +10,8 @@
     [RENODX-DLSS]                     - keys a non-DLSS host needs, hook point, colour/UI handling
     [RENODX-DLSS-preset1]             - the image parameters (model, intensity, ...)
     [OVERLAY]  ShowFPS, ShowFrameTime  - ReShade's own FPS counter (-Fps), for diagnosis
+  and, when the NR Cost Scaler is installed, two keys in nvngx_dlssnr.ini:
+    [DLSSNR_Proxy] EnableProxy, ResolutionScale  - Cost Scaler on/off and internal resolution (-CostScaler, -CostScale)
 
   Close Lossless Scaling first: ReShade rewrites ReShade.ini when the process exits, so edits made
   while LS is running get overwritten.
@@ -36,6 +38,14 @@
   to the LS output FPS means once per presented frame (after frame generation); equal to the LS
   input FPS means once per captured frame (before it). Independent of the add-on being on or off.
 
+.PARAMETER CostScaler
+  on / off. NR Cost Scaler (the toggle under Neural Rendering in RHI): runs the NR model at a lower
+  internal resolution and rebuilds the output, to gain FPS. Stored in nvngx_dlssnr.ini, not ReShade.ini.
+
+.PARAMETER CostScale
+  Internal resolution scale for the Cost Scaler, 0.25 to 1.00. Lower = more FPS, less detail.
+  0.75 is the author's recommended sweet spot (about 40 % faster neural pass).
+
 .PARAMETER Launch
   Start Lossless Scaling through Steam with WPF hardware acceleration turned off for the lifetime of
   LS (see notes near the bottom of the script), then restore the key when LS exits. Alone, it asks
@@ -43,7 +53,7 @@
 
 .EXAMPLE
   .\nr-config.ps1
-  No parameters: asks on/off, model, pass count, hook point, offers the advanced keys, writes, offers to start LS.
+  No parameters: asks on/off, model, pass count, hook point, Cost Scaler, FPS counter, offers the advanced keys, writes, offers to start LS.
 .EXAMPLE
   .\nr-config.ps1 -Launch
   Just start LS the right way. Nothing is asked; the required key is checked on the way.
@@ -82,7 +92,13 @@ param(
 
   # [OVERLAY] (ReShade itself, not the add-on)
   [ValidateSet('on', 'off')]
-  [string]$Fps               # ShowFPS + ShowFrameTime
+  [string]$Fps,              # ShowFPS + ShowFrameTime
+
+  # nvngx_dlssnr.ini [DLSSNR_Proxy] (NR Cost Scaler, installed through RHI)
+  [ValidateSet('on', 'off')]
+  [string]$CostScaler,       # EnableProxy 1 / 0
+  [ValidateRange(0.25, 1.0)]
+  [double]$CostScale         # ResolutionScale
 )
 
 $ErrorActionPreference = 'Stop'
@@ -100,6 +116,8 @@ $MainSection = 'RENODX-DLSS'
 $PresetSection = 'RENODX-DLSS-preset1'
 $OverlaySection = 'OVERLAY'
 $FpsKeys = @('ShowFPS', 'ShowFrameTime')   # ReShade's built-in counter, toggled together by -Fps
+$ProxyIniName = 'nvngx_dlssnr.ini'         # written by RHI's "NR Cost Scaler" toggle; absent = not installed
+$ProxySection = 'DLSSNR_Proxy'
 
 # parameter name -> (section, ini key). Order = order of the interactive prompts.
 $Tunable = [ordered]@{
@@ -152,7 +170,8 @@ $requested = [ordered]@{}
 foreach ($p in $Tunable.Keys) {
   if ($PSBoundParameters.ContainsKey($p)) { $requested[$p] = $PSBoundParameters[$p] }
 }
-$Interactive = (-not $Show) -and (-not $Launch) -and (-not $On) -and (-not $Off) -and (-not $Fps) -and ($requested.Count -eq 0)
+$Interactive = (-not $Show) -and (-not $Launch) -and (-not $On) -and (-not $Off) -and (-not $Fps) -and
+               (-not $CostScaler) -and (-not $PSBoundParameters.ContainsKey('CostScale')) -and ($requested.Count -eq 0)
 
 if (-not $LsPath) { $LsPath = Find-LsPath }
 if (-not $LsPath -or -not (Test-Path (Join-Path $LsPath 'LosslessScaling.exe'))) {
@@ -172,53 +191,72 @@ if (-not (Test-Path $IniPath)) {
 
 $lines = [System.Collections.Generic.List[string]]([IO.File]::ReadAllLines($IniPath))
 
-function Get-SectionRange([string]$section) {
+# nvngx_dlssnr.ini exists only when RHI's "NR Cost Scaler" toggle is on. Same helpers, other file.
+$ProxyIniPath = Join-Path $LsPath $ProxyIniName
+$proxyLines = $null
+if (Test-Path $ProxyIniPath) { $proxyLines = [System.Collections.Generic.List[string]]([IO.File]::ReadAllLines($ProxyIniPath)) }
+
+# All helpers work on a line list; $L defaults to ReShade.ini, pass $proxyLines for nvngx_dlssnr.ini.
+
+function Get-SectionRange([string]$section, $L = $lines) {
   # returns [start, end): start = header line, end = next header line or line count
   $start = -1
-  for ($i = 0; $i -lt $lines.Count; $i++) {
-    if ($lines[$i] -match '^\s*\[(.+?)\]\s*$') {
+  for ($i = 0; $i -lt $L.Count; $i++) {
+    if ($L[$i] -match '^\s*\[(.+?)\]\s*$') {
       if ($start -ge 0) { return @($start, $i) }
       if ($Matches[1] -eq $section) { $start = $i }
     }
   }
-  if ($start -ge 0) { return @($start, $lines.Count) }
+  if ($start -ge 0) { return @($start, $L.Count) }
   return $null
 }
 
-function Get-IniValue([string]$section, [string]$key) {
-  $r = Get-SectionRange $section
+function Get-IniValue([string]$section, [string]$key, $L = $lines) {
+  $r = Get-SectionRange $section $L
   if (-not $r) { return $null }
   for ($i = $r[0] + 1; $i -lt $r[1]; $i++) {
-    if ($lines[$i] -match "^\s*$([regex]::Escape($key))\s*=\s*(.*)$") { return $Matches[1].Trim() }
+    if ($L[$i] -match "^\s*$([regex]::Escape($key))\s*=\s*(.*)$") { return $Matches[1].Trim() }
   }
   return $null
 }
 
-function Set-IniValue([string]$section, [string]$key, [string]$value) {
-  $r = Get-SectionRange $section
+function Set-IniValue([string]$section, [string]$key, [string]$value, $L = $lines) {
+  $r = Get-SectionRange $section $L
   if (-not $r) {
-    if ($lines.Count -gt 0 -and $lines[$lines.Count - 1].Trim() -ne '') { $lines.Add('') }
-    $lines.Add("[$section]"); $lines.Add("$key=$value")
+    if ($L.Count -gt 0 -and $L[$L.Count - 1].Trim() -ne '') { $L.Add('') }
+    $L.Add("[$section]"); $L.Add("$key=$value")
     return
   }
   for ($i = $r[0] + 1; $i -lt $r[1]; $i++) {
-    if ($lines[$i] -match "^\s*$([regex]::Escape($key))\s*=") { $lines[$i] = "$key=$value"; return }
+    if ($L[$i] -match "^\s*$([regex]::Escape($key))\s*=") { $L[$i] = "$key=$value"; return }
   }
   # key missing: insert at the end of the section, before the blank line that separates sections
   $ins = $r[1]
-  while ($ins -gt $r[0] + 1 -and $lines[$ins - 1].Trim() -eq '') { $ins-- }
-  $lines.Insert($ins, "$key=$value")
+  while ($ins -gt $r[0] + 1 -and $L[$ins - 1].Trim() -eq '') { $ins-- }
+  $L.Insert($ins, "$key=$value")
 }
 
-function Get-SectionKeys([string]$section, [string]$prefix) {
+function Get-SectionKeys([string]$section, [string]$prefix, $L = $lines) {
   $out = [ordered]@{}
-  $r = Get-SectionRange $section
+  $r = Get-SectionRange $section $L
   if (-not $r) { return $out }
   for ($i = $r[0] + 1; $i -lt $r[1]; $i++) {
-    if ($lines[$i] -match "^\s*($([regex]::Escape($prefix))\w*)\s*=\s*(.*)$") { $out[$Matches[1]] = $Matches[2].Trim() }
+    if ($L[$i] -match "^\s*($([regex]::Escape($prefix))\w*)\s*=\s*(.*)$") { $out[$Matches[1]] = $Matches[2].Trim() }
   }
   return $out
 }
+
+# --- NR Cost Scaler through nvngx_dlssnr.ini [DLSSNR_Proxy] EnableProxy / ResolutionScale ---
+
+function Test-CostScalerInstalled { return ($null -ne $proxyLines) }
+function Test-CostScalerOn { return ((Get-IniValue $ProxySection 'EnableProxy' $proxyLines) -eq '1') }
+function Get-CostScale {
+  $v = Get-IniValue $ProxySection 'ResolutionScale' $proxyLines
+  $d = 0.0
+  if ($v -and [double]::TryParse($v, [Globalization.NumberStyles]::Float, $Inv, [ref]$d)) { return $d }
+  return $null
+}
+function Format-Scale([double]$v) { return $v.ToString('0.00', $Inv) }
 
 # --- add-on on/off through [ADDON] DisabledAddons (comma-separated add-on names) ---
 
@@ -277,6 +315,14 @@ function Show-Current {
   Write-Host ("Neural rendering add-on `"$AddonName`": $state")
   $fpsState = if (Test-FpsShown) { 'ON' } else { 'off' }
   Write-Host ("ReShade FPS counter [$OverlaySection] ShowFPS/ShowFrameTime: $fpsState   (-Fps on|off)")
+  if (Test-CostScalerInstalled) {
+    $csState = if (Test-CostScalerOn) { 'ON' } else { 'off' }
+    $csScale = Get-CostScale
+    $csShown = if ($null -eq $csScale) { '(missing)' } else { Format-Scale $csScale }
+    Write-Host ("NR Cost Scaler [$ProxyIniName]: $csState, internal resolution $csShown   (-CostScaler on|off, -CostScale 0.25-1.00)   for FPS: lower = faster, less detail")
+  } else {
+    Write-Host "NR Cost Scaler: not installed (no $ProxyIniName). Optional, for FPS: turn it on in RHI under Neural Rendering."
+  }
   Write-Host ''
   Write-Host "[$MainSection]"
   $byKey = @{}; foreach ($p in $Tunable.Keys) { $byKey[$Tunable[$p][1]] = $p }
@@ -311,6 +357,10 @@ $wantEnabled = $null
 if ($On) { $wantEnabled = $true } elseif ($Off) { $wantEnabled = $false }
 $wantFps = $null
 if ($Fps) { $wantFps = ($Fps -eq 'on') }
+$wantCostScaler = $null
+if ($CostScaler) { $wantCostScaler = ($CostScaler -eq 'on') }
+$wantCostScale = $null
+if ($PSBoundParameters.ContainsKey('CostScale')) { $wantCostScale = [double]$CostScale }
 
 function Read-Param([string]$p) {
   # asks once for one parameter; stores into $requested; Enter keeps the current value
@@ -348,6 +398,26 @@ if ($Interactive) {
     Write-Host '    on or off'
   }
   foreach ($p in $Basic) { Read-Param $p }
+  if (Test-CostScalerInstalled) {
+    Write-Host '  NR Cost Scaler, for FPS: runs the NR model at a lower internal resolution, then rebuilds the output.'
+    $curCs = if (Test-CostScalerOn) { 'on' } else { 'off' }
+    while ($true) {
+      $a = Read-Host ("  Cost Scaler (on / off) [{0}]" -f $curCs)
+      if ([string]::IsNullOrWhiteSpace($a)) { break }
+      if ($a -match '^(?i)on$')  { $wantCostScaler = $true;  break }
+      if ($a -match '^(?i)off$') { $wantCostScaler = $false; break }
+      Write-Host '    on or off'
+    }
+    $curScale = Get-CostScale
+    $curScaleShown = if ($null -eq $curScale) { '(missing)' } else { Format-Scale $curScale }
+    while ($true) {
+      $a = Read-Host ("  Cost Scaler internal resolution, 0.25-1.00, lower = more FPS [{0}]" -f $curScaleShown)
+      if ([string]::IsNullOrWhiteSpace($a)) { break }
+      $tmp = 0.0
+      if ([double]::TryParse($a.Trim().Replace(',', '.'), [Globalization.NumberStyles]::Float, $Inv, [ref]$tmp) -and $tmp -ge 0.25 -and $tmp -le 1.0) { $wantCostScale = $tmp; break }
+      Write-Host '    a number from 0.25 to 1.00, e.g. 0.75'
+    }
+  }
   $curFps = if (Test-FpsShown) { 'on' } else { 'off' }
   while ($true) {
     $a = Read-Host ("  ReShade FPS counter on the LS output (on / off) [{0}]" -f $curFps)
@@ -405,12 +475,37 @@ foreach ($p in $requested.Keys) {
   if ($cur -ne $new) { Set-IniValue $sec $key $new; $changes += "[$sec] ${key}: $(Show-Value $cur) -> $new" }
 }
 
-if ($changes.Count -eq 0) {
+$proxyChanges = @()
+if ($null -ne $wantCostScaler -or $null -ne $wantCostScale) {
+  if (-not (Test-CostScalerInstalled)) {
+    Write-Warning "NR Cost Scaler is not installed (no $ProxyIniName in the LS folder). Turn it on in RHI under Neural Rendering, then run this again."
+  } else {
+    if ($null -ne $wantCostScaler -and $wantCostScaler -ne (Test-CostScalerOn)) {
+      Set-IniValue $ProxySection 'EnableProxy' $(if ($wantCostScaler) { '1' } else { '0' }) $proxyLines
+      $proxyChanges += "[$ProxySection] EnableProxy: $(if ($wantCostScaler) { 'off -> ON' } else { 'ON -> off' })"
+    }
+    if ($null -ne $wantCostScale) {
+      $cur = Get-IniValue $ProxySection 'ResolutionScale' $proxyLines
+      $new = Format-Scale $wantCostScale
+      if ($cur -ne $new) { Set-IniValue $ProxySection 'ResolutionScale' $new $proxyLines; $proxyChanges += "[$ProxySection] ResolutionScale: $(Show-Value $cur) -> $new" }
+    }
+  }
+}
+
+if ($changes.Count -eq 0 -and $proxyChanges.Count -eq 0) {
   Write-Host 'Nothing to change: values already match.'
-} else {
+}
+if ($changes.Count -gt 0) {
   [IO.File]::WriteAllLines($IniPath, $lines, (New-Object System.Text.UTF8Encoding($false)))
   Write-Host "Wrote $($changes.Count) change(s) to $IniPath"
   $changes | ForEach-Object { Write-Host "  $_" }
+}
+if ($proxyChanges.Count -gt 0) {
+  $porig = "$ProxyIniPath.orig"
+  if (-not (Test-Path $porig)) { Copy-Item $ProxyIniPath $porig; Write-Host "Original kept at: $porig" }
+  [IO.File]::WriteAllLines($ProxyIniPath, $proxyLines, (New-Object System.Text.UTF8Encoding($false)))
+  Write-Host "Wrote $($proxyChanges.Count) change(s) to $ProxyIniPath"
+  $proxyChanges | ForEach-Object { Write-Host "  $_" }
 }
 
 # ---- start LS with WPF hardware acceleration off for its lifetime --------------------------------
@@ -421,23 +516,43 @@ if ($changes.Count -eq 0) {
 # value (or delete the key if there was none). The watcher runs in a hidden child process, so this
 # window can be closed. LS is started through Steam (steam://rungameid/993090) so Steam's ownership
 # check and settings apply. Any other WPF app started while LS is running also sees the key.
+# The watcher also leaves a marker value next to the key while it runs. If the watcher dies before
+# restoring (terminal closed, reboot), the next launch reads the marker instead of the stale key.
 
 $SteamAppId = 993090
 
 $WatcherScript = @'
 $key = 'HKCU:\SOFTWARE\Microsoft\Avalon.Graphics'; $name = 'DisableHWAcceleration'
+$mark = 'DisableHWAcceleration_dlss5anywhere_prev'   # what the key was before we touched it; exists only while a watcher is live
+if (-not (Test-Path $key)) { New-Item -Path $key -Force | Out-Null }
 $prev = $null
 try { $prev = (Get-ItemProperty -Path $key -Name $name -ErrorAction Stop).$name } catch {}
-if (-not (Test-Path $key)) { New-Item -Path $key -Force | Out-Null }
+# A marker left behind means an earlier watcher set the key and never restored it (terminal closed,
+# machine rebooted). Trust the marker over the current value, otherwise the stale 1 would be "restored" forever.
+$m = $null
+try { $m = (Get-ItemProperty -Path $key -Name $mark -ErrorAction Stop).$mark } catch {}
+if ($null -ne $m) { $prev = if ("$m" -eq 'none') { $null } else { [int]$m } }
+Set-ItemProperty -Path $key -Name $mark -Value $(if ($null -eq $prev) { 'none' } else { "$prev" }) -Type String
 Set-ItemProperty -Path $key -Name $name -Value 1 -Type DWord
 Start-Process 'steam://rungameid/__APPID__'
 $p = $null
-for ($i = 0; $i -lt 120 -and -not $p; $i++) { Start-Sleep -Milliseconds 500; $p = Get-Process -Name '__PROC__' -ErrorAction SilentlyContinue }
+for ($i = 0; $i -lt 240 -and -not $p; $i++) { Start-Sleep -Milliseconds 500; $p = Get-Process -Name '__PROC__' -ErrorAction SilentlyContinue }
 if ($p) { Wait-Process -Id ($p | Select-Object -First 1).Id -ErrorAction SilentlyContinue }
 if ($null -eq $prev) { Remove-ItemProperty -Path $key -Name $name -ErrorAction SilentlyContinue } else { Set-ItemProperty -Path $key -Name $name -Value $prev -Type DWord }
+Remove-ItemProperty -Path $key -Name $mark -ErrorAction SilentlyContinue
 '@
 
 function Start-LS {
+  # Key already 1 with no marker: either the user set it on purpose, or an older version of this
+  # watcher died before restoring. We cannot tell which, so say so once instead of guessing.
+  $k = 'HKCU:\SOFTWARE\Microsoft\Avalon.Graphics'
+  $cur = $null; $mk = $null
+  try { $cur = (Get-ItemProperty -Path $k -Name 'DisableHWAcceleration' -ErrorAction Stop).DisableHWAcceleration } catch {}
+  try { $mk = (Get-ItemProperty -Path $k -Name 'DisableHWAcceleration_dlss5anywhere_prev' -ErrorAction Stop).DisableHWAcceleration_dlss5anywhere_prev } catch {}
+  if ($cur -eq 1 -and $null -eq $mk) {
+    Write-Host "Note: DisableHWAcceleration is already 1 before launch. If you did not set that yourself, it is left over from an earlier run; after closing LS run:"
+    Write-Host "  Remove-ItemProperty '$k' -Name DisableHWAcceleration"
+  }
   $psExe = (Get-Process -Id $PID).Path
   $body = $WatcherScript.Replace('__APPID__', "$SteamAppId").Replace('__PROC__', 'LosslessScaling')
   $enc = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($body))
