@@ -142,6 +142,7 @@ Có tham số thì script không hỏi, ghi thẳng. Thêm `-Launch` để mở 
 | `-LocalStructure x` `-SkinStructure x` | Độ mạnh vân bề mặt và vân da người. |
 | `-UiCorrection` `-Encoding` `-WhiteNits` `-WhiteOverride` | Thiết lập HDR và giao diện. |
 | `-Fps on\|off` | Hiện hoặc ẩn bộ đếm FPS và frame time của ReShade. |
+| `-Ota on\|off` | Bật hoặc tắt việc driver NVIDIA kiểm tra model DLSS mới qua mạng (NGX OTA), áp dụng toàn máy. Cần quyền Admin. Không cần đóng LS. |
 | `-Show` | Xem cấu hình hiện tại, không ghi. |
 | `-Launch` | Mở LS, tắt hardware acceleration của WPF trong lúc LS chạy. |
 | `-LsPath "…"` | Đường dẫn thư mục LS, khi script không tự tìm thấy. |
@@ -188,7 +189,7 @@ Cấu hình đã chạy tốt khi thử nghiệm. Mở LS, vào profile đang d�
 
 | Triệu chứng | Cách xử lý |
 |---|---|
-| Bấm `Ctrl+Alt+S` mà chưa thấy gì thay đổi | Chờ một lúc. ReShade và add-on NR cần thời gian khởi động sau lần scale đầu. |
+| Bấm `Ctrl+Alt+S` mà chưa thấy gì thay đổi | Chờ một lúc. ReShade và add-on NR cần thời gian khởi động sau lần scale đầu. Nếu chờ từ một phút trở lên, chạy `-Ota off`. |
 | LS vừa mở lên đã bị ReShade xử lý, kể cả cửa sổ thiết lập | LS được mở không qua script. Kiểm bằng `reg query "HKCU\SOFTWARE\Microsoft\Avalon.Graphics"`, phải thấy `DisableHWAcceleration 0x1`. Đóng LS, mở lại bằng `.\scripts\nr-config.ps1 -Launch`. |
 | PowerShell báo `running scripts is disabled on this system` hoặc `not digitally signed` | Chạy bằng `powershell -ExecutionPolicy Bypass -File .\scripts\nr-config.ps1`. Nếu tải repo dạng ZIP: chuột phải `nr-config.ps1` → Properties → tick **Unblock**. |
 | FPS tụt | Bật NR Cost Scaler, hạ tỉ lệ, ví dụ `-CostScale 0.67`. Kiểm Frame Generation và Scaling của LS đang bật như bảng Thiết lập LS. Vẫn thấp thì hạ độ phân giải ra. |

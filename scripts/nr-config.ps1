@@ -12,6 +12,8 @@
     [OVERLAY]  ShowFPS, ShowFrameTime  - ReShade's own FPS counter (-Fps), for diagnosis
   and, when the NR Cost Scaler is installed, two keys in nvngx_dlssnr.ini:
     [DLSSNR_Proxy] EnableProxy, ResolutionScale  - Cost Scaler on/off and internal resolution (-CostScaler, -CostScale)
+  and one machine-wide registry value, only when asked with -Ota:
+    HKLM\SOFTWARE\NVIDIA Corporation\Global\NGXCore\EnableOTA  - NGX over-the-air model check (needs admin, UAC prompt)
 
   Close Lossless Scaling first: ReShade rewrites ReShade.ini when the process exits, so edits made
   while LS is running get overwritten.
@@ -46,6 +48,14 @@
   Internal resolution scale for the Cost Scaler, 0.25 to 1.00. Lower = more FPS, less detail.
   0.75 is the author's recommended sweet spot (about 40 % faster neural pass).
 
+.PARAMETER Ota
+  on / off. NGX "over the air" check: when a DLSS feature is created, the NVIDIA driver asks
+  ngx.download.nvidia.com for newer models before continuing. On a slow connection that turns the
+  first NR frame after pressing Scale into a fixed wait of a minute or more. off writes EnableOTA=0
+  under HKLM\SOFTWARE\NVIDIA Corporation\Global\NGXCore (NVIDIA's documented switch), on removes
+  the value again. Machine-wide, affects every DLSS game, needs admin: a UAC prompt appears. LS does
+  not need to be closed for this one; the driver reads the value the next time Scale starts.
+
 .PARAMETER Launch
   Start Lossless Scaling through Steam with WPF hardware acceleration turned off for the lifetime of
   LS (see notes near the bottom of the script), then restore the key when LS exits. Alone, it asks
@@ -63,6 +73,9 @@
 .EXAMPLE
   .\nr-config.ps1 -Model C -Intensity 0.7 -Launch
   With parameters: writes directly, no questions, then starts LS.
+.EXAMPLE
+  .\nr-config.ps1 -Ota off
+  Stop the driver's online model check so Scale starts in seconds instead of minutes. Asks for admin.
 #>
 [CmdletBinding()]
 param(
@@ -98,7 +111,11 @@ param(
   [ValidateSet('on', 'off')]
   [string]$CostScaler,       # EnableProxy 1 / 0
   [ValidateRange(0.25, 1.0)]
-  [double]$CostScale         # ResolutionScale
+  [double]$CostScale,        # ResolutionScale
+
+  # HKLM\SOFTWARE\NVIDIA Corporation\Global\NGXCore (NVIDIA driver, machine-wide, admin)
+  [ValidateSet('on', 'off')]
+  [string]$Ota               # EnableOTA absent (on) / 0 (off)
 )
 
 $ErrorActionPreference = 'Stop'
@@ -170,7 +187,7 @@ $requested = [ordered]@{}
 foreach ($p in $Tunable.Keys) {
   if ($PSBoundParameters.ContainsKey($p)) { $requested[$p] = $PSBoundParameters[$p] }
 }
-$Interactive = (-not $Show) -and (-not $Launch) -and (-not $On) -and (-not $Off) -and (-not $Fps) -and
+$Interactive = (-not $Show) -and (-not $Launch) -and (-not $On) -and (-not $Off) -and (-not $Fps) -and (-not $Ota) -and
                (-not $CostScaler) -and (-not $PSBoundParameters.ContainsKey('CostScale')) -and ($requested.Count -eq 0)
 
 if (-not $LsPath) { $LsPath = Find-LsPath }
@@ -307,6 +324,32 @@ function Show-Param([string]$p) {
   return Show-Value $cur
 }
 
+# --- NGX over-the-air model check: HKLM\...\NGXCore\EnableOTA (absent or 1 = on, 0 = off) ---
+
+$OtaKey = 'HKLM:\SOFTWARE\NVIDIA Corporation\Global\NGXCore'
+$OtaName = 'EnableOTA'
+function Get-OtaValue { try { return (Get-ItemProperty -Path $OtaKey -Name $OtaName -ErrorAction Stop).$OtaName } catch { return $null } }
+function Test-OtaOn { return ((Get-OtaValue) -ne 0) }
+function Test-IsAdmin {
+  return ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+}
+function Set-OtaOn([bool]$on) {
+  # Runs as-is when already admin, otherwise in an elevated child (UAC prompt), then re-reads the value.
+  $cmd = if ($on) { "Remove-ItemProperty -Path '$OtaKey' -Name '$OtaName' -ErrorAction SilentlyContinue" }
+         else     { "if (-not (Test-Path '$OtaKey')) { New-Item -Path '$OtaKey' -Force | Out-Null }; Set-ItemProperty -Path '$OtaKey' -Name '$OtaName' -Value 0 -Type DWord" }
+  if (Test-IsAdmin) {
+    Invoke-Expression $cmd
+  } else {
+    Write-Host 'Changing EnableOTA needs admin rights: confirm the UAC prompt.'
+    $psExe = (Get-Process -Id $PID).Path
+    $enc = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($cmd))
+    try {
+      Start-Process -FilePath $psExe -Verb RunAs -Wait -WindowStyle Hidden -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', $enc
+    } catch { throw "UAC prompt was declined or failed: $($_.Exception.Message)" }
+  }
+  if ((Test-OtaOn) -ne $on) { throw "EnableOTA still reads $(Show-Value (Get-OtaValue)); the registry write did not take." }
+}
+
 # ---- current state -------------------------------------------------------------------------------
 
 function Show-Current {
@@ -323,6 +366,8 @@ function Show-Current {
   } else {
     Write-Host "NR Cost Scaler: not installed (no $ProxyIniName). Optional, for FPS: turn it on in RHI under Neural Rendering."
   }
+  $otaState = if (Test-OtaOn) { 'on  (driver checks ngx.download.nvidia.com when Scale starts; slow network = long wait)' } else { 'off' }
+  Write-Host ("NGX online model check [HKLM NGXCore] EnableOTA: $otaState   (-Ota on|off, admin)")
   Write-Host ''
   Write-Host "[$MainSection]"
   $byKey = @{}; foreach ($p in $Tunable.Keys) { $byKey[$Tunable[$p][1]] = $p }
@@ -344,6 +389,21 @@ function Show-Current {
 }
 
 if ($Show) { Show-Current; return }
+
+# ---- NGX OTA (registry, machine-wide) - handled first: does not need LS closed -------------------
+
+if ($Ota) {
+  $wantOta = ($Ota -eq 'on')
+  if ($wantOta -eq (Test-OtaOn)) {
+    Write-Host "NGX online model check already $Ota."
+  } else {
+    Set-OtaOn $wantOta
+    Write-Host "NGX online model check: $(if ($wantOta) { 'off -> on (EnableOTA removed)' } else { 'on -> off (EnableOTA=0)' }). Takes effect the next time Scale starts."
+  }
+  $onlyOta = (-not $Launch) -and (-not $On) -and (-not $Off) -and (-not $Fps) -and (-not $CostScaler) -and
+             (-not $PSBoundParameters.ContainsKey('CostScale')) -and ($requested.Count -eq 0)
+  if ($onlyOta) { return }
+}
 
 function Assert-LsClosed {
   if (Get-Process -Name 'LosslessScaling' -ErrorAction SilentlyContinue) {

@@ -142,6 +142,7 @@ With parameters, the script asks nothing and writes directly. Add `-Launch` to o
 | `-LocalStructure x` `-SkinStructure x` | Surface and skin structure strength. |
 | `-UiCorrection` `-Encoding` `-WhiteNits` `-WhiteOverride` | HDR and UI settings. |
 | `-Fps on\|off` | Shows or hides ReShade's FPS and frame-time counter. |
+| `-Ota on\|off` | Turns the NVIDIA driver's online DLSS model check (NGX OTA) on or off, machine-wide. Asks for admin. LS can stay open. |
 | `-Show` | Prints the current config without writing. |
 | `-Launch` | Opens LS with WPF hardware acceleration off while LS runs. |
 | `-LsPath "…"` | Path to the LS folder, when the script cannot find it. |
@@ -188,7 +189,7 @@ This configuration worked well in testing. Open LS, pick the profile you use, ma
 
 | Symptom | What to do |
 |---|---|
-| You press `Ctrl+Alt+S` and nothing changes | Wait a moment. ReShade and the NR add-on need time to start after the first scale. |
+| You press `Ctrl+Alt+S` and nothing changes | Wait a moment. ReShade and the NR add-on need time to start after the first scale. If the wait is a minute or more, run `-Ota off`. |
 | ReShade processes LS the moment it opens, settings window included | LS was opened without the script. Check with `reg query "HKCU\SOFTWARE\Microsoft\Avalon.Graphics"`; it should show `DisableHWAcceleration 0x1`. Close LS, reopen with `.\scripts\nr-config.ps1 -Launch`. |
 | PowerShell says `running scripts is disabled on this system` or `not digitally signed` | Run it as `powershell -ExecutionPolicy Bypass -File .\scripts\nr-config.ps1`. If you downloaded the repo as a ZIP: right-click `nr-config.ps1` → Properties → tick **Unblock**. |
 | FPS drops | Turn NR Cost Scaler on and lower its scale, for example `-CostScale 0.67`. Check that Frame Generation and Scaling in LS are on as in the LS settings table. Still low: lower the output resolution. |
