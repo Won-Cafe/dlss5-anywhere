@@ -5,7 +5,7 @@
 .DESCRIPTION
   The ReShade overlay cannot be opened while ReShade lives inside LosslessScaling.exe (key presses
   go to the game, not to LS), so everything is done on disk, in ReShade.ini. This script touches
-  exactly three places and leaves every other line alone:
+  only the places below and leaves every other line alone:
     [ADDON]  DisabledAddons           - turn the "RenoDX DLSS" add-on on or off
     [RENODX-DLSS]                     - keys a non-DLSS host needs, hook point, colour/UI handling
     [RENODX-DLSS-preset1]             - the image parameters (model, intensity, ...)

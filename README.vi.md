@@ -8,7 +8,7 @@
 
 </div>
 
-> **Version v0.0.2** · bản thử nghiệm tính đa dụng, cải thiện nhẹ FPS.
+> **Version v0.0.3** · `-Ota off` tắt bước driver NVIDIA kiểm tra model qua mạng, Scale lên hình sau vài giây thay vì hơn một phút.
 >
 > Đã chạy thử ngày 07/09/2026 trên RTX 5070 Ti với Lossless Scaling 3.2.2, RHI 2.6.3, ReShade 6.8.0, DLSS SR/RR/FG 310.9.0, NR DLL 310.8.2, driver NVIDIA 616.64.
 

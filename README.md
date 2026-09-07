@@ -8,7 +8,7 @@
 
 </div>
 
-> **Version v0.0.2** · a test of how widely this works, with a small FPS improvement.
+> **Version v0.0.3** · `-Ota off` stops the NVIDIA driver's online model check, so Scale starts in seconds instead of a minute or more.
 >
 > Last tested 2026-09-07 on an RTX 5070 Ti with Lossless Scaling 3.2.2, RHI 2.6.3, ReShade 6.8.0, DLSS SR/RR/FG 310.9.0, NR DLL 310.8.2, NVIDIA driver 616.64.
 
