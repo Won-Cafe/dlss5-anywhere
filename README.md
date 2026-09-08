@@ -8,7 +8,7 @@
 
 </div>
 
-> **Version v0.0.3** · `-Ota off` stops the NVIDIA driver's online model check, so Scale starts in seconds instead of a minute or more.
+> **Version v0.0.4** · The script fills in the NR keys RHI does not create (Model C, PassCount 1, HookPoint 1), so a fresh install no longer ends up scaling without NR. Install steps reordered: NR Cost Scaler on before the add-on install, first LS launch through the script.
 >
 > Last tested 2026-09-07 on an RTX 5070 Ti with Lossless Scaling 3.2.2, RHI 2.6.3, ReShade 6.8.0, DLSS SR/RR/FG 310.9.0, NR DLL 310.8.2, NVIDIA driver 616.64.
 
@@ -87,15 +87,16 @@ Open RHI, find the **Lossless Scaling** card. If it is missing, click *Browse* a
 1. **Components** → *ReShade* → **Install**
 2. **Neural Rendering** → *Method* → **DLSS Tool (ShortFuse)** ([about this add-on](#the-dlss-tool-shortfuse-add-on))
 3. Click the gear next to **Remove** → **ShortFuse Settings** → switch *Auto-configure ReShade for FrameGen* to **Off** → **Save** ([why](#auto-configure-reshade-for-framegen))
-4. **Neural Rendering** → **Install**
-5. Switch **NR Cost Scaler** to **On** ([why](#nr-cost-scaler))
-6. **Launch** once, then close LS
+4. Switch **NR Cost Scaler** to **On** ([why](#nr-cost-scaler)). The switch is locked once the add-on is installed: if it is already installed, **Remove** → switch on → **Reinstall**.
+5. **Neural Rendering** → **Install**
+
+Do not open LS from RHI or Steam yet. The first launch is in step 4, through the script.
 
 ![RHI: ReShade and Neural Rendering for Lossless Scaling](images/rhi-install-ls.webp)
 
 ![RHI: ShortFuse Settings, Auto-configure ReShade for FrameGen turned off](images/rhi-turn-off-fix-framegen.webp)
 
-**Check:** the status row in RHI shows `✓ ReShade ✓ DLSS Tool (ShortFuse) ✓ DLSS SR ✓ DLSS RR ✓ DLSS FG ✓ NR DLL ✗ ASI Loader`, and the NR Cost Scaler row says *Installed*. The LS folder has a `ReShade.log` whose first line is *Initializing crosire's ReShade*.
+**Check:** the status row in RHI shows `✓ ReShade ✓ DLSS Tool (ShortFuse) ✓ DLSS SR ✓ DLSS RR ✓ DLSS FG ✓ NR DLL ✗ ASI Loader`, and the NR Cost Scaler row says *Installed*. The LS folder has `dxgi.dll` (ReShade), `ReShade.ini`, `renodx-dlss.addon64` and `nvngx_dlssnr.ini`.
 
 ### 2. LosslessProxy + LSP-Windowed
 
@@ -122,11 +123,11 @@ Close LS. Open PowerShell in the repo folder:
 .\scripts\nr-config.ps1
 ```
 
-The script asks, in order: NR on or off, **Model**, **PassCount**, **HookPoint**, **Cost Scaler** (on/off and scale), the FPS counter. Enter keeps the current value. Then it asks about the advanced settings, then whether to open LS.
+The script asks, in order: NR on or off, **Model**, **PassCount**, **HookPoint**, **Cost Scaler** (on/off and scale), the FPS counter. Enter takes the value in brackets: the current one, or the suggested one when the key is not in `ReShade.ini` yet (RHI does not create the NR keys). Then it asks about the advanced settings, then whether to open LS.
 
 ![nr-config.ps1](images/demo-script-nr-config.webp)
 
-With parameters, the script asks nothing and writes directly. Add `-Launch` to open LS right after.
+With parameters, the script asks nothing and writes directly; keys still missing get the suggested values (Model C, PassCount 1, HookPoint 1). Add `-Launch` to open LS right after.
 
 | Parameter | What it does |
 |---|---|
@@ -147,14 +148,14 @@ With parameters, the script asks nothing and writes directly. Add `-Launch` to o
 | `-Launch` | Opens LS with WPF hardware acceleration off while LS runs. |
 | `-LsPath "…"` | Path to the LS folder, when the script cannot find it. |
 
-**Check:** LS opens, not scaling yet, GPU usage in Task Manager near zero. Click **Scale** (`Ctrl+Alt+S`) and the picture changes. `ReShade.log` has a line saying NR initialized successfully.
+**Check:** `.\scripts\nr-config.ps1 -Show` prints no `(missing)` on the Style, PassCount and HookPoint rows. LS opens, not scaling yet, GPU usage in Task Manager near zero. Click **Scale** (`Ctrl+Alt+S`) and the picture changes. `ReShade.log` has the line `DLSS-NR direct: attached snippet …\nvngx_dlssnr.dll`.
 
 <details>
 <summary>Without RHI</summary>
 
 1. Install [ReShade](https://reshade.me), the **with full add-on support** build, into `LosslessScaling.exe`, API **Direct3D 10/11/12**, every effect package unticked.
 2. Copy `renodx-dlss.addon64` and the `nvngx_dlssnr.dll` for your GPU generation (from the [RenoDX Discord channel](https://discord.com/channels/1408098019194310818/1543975158937821315)) into the LS folder. Keep only one `renodx-dlss*.addon64`.
-3. Open LS once and close it. Continue with steps 2, 3 and 4.
+3. Continue with steps 2, 3 and 4. Do not open LS before step 4.
 
 </details>
 
@@ -190,7 +191,9 @@ This configuration worked well in testing. Open LS, pick the profile you use, ma
 | Symptom | What to do |
 |---|---|
 | You press `Ctrl+Alt+S` and nothing changes | Wait a moment. ReShade and the NR add-on need time to start after the first scale. If the wait is a minute or more, run `-Ota off`. |
-| ReShade processes LS the moment it opens, settings window included | LS was opened without the script. Check with `reg query "HKCU\SOFTWARE\Microsoft\Avalon.Graphics"`; it should show `DisableHWAcceleration 0x1`. Close LS, reopen with `.\scripts\nr-config.ps1 -Launch`. |
+| Scale works, but the picture only gets the plain LS upscale, no NR, even after minutes | The NR keys are not set. Run `.\scripts\nr-config.ps1 -Show`: Style, PassCount and HookPoint must not read `(missing)`. Run the script once without parameters and press Enter through it to take the suggested values. `-Fps on` shows whether ReShade draws at all. |
+| LS crashes right after opening, or ReShade processes the LS settings window | LS was opened from Steam or RHI, without the script. Check with `reg query "HKCU\SOFTWARE\Microsoft\Avalon.Graphics"`; it should show `DisableHWAcceleration 0x1`. Close LS, reopen with `.\scripts\nr-config.ps1 -Launch`. |
+| Windows Defender reports a threat in `RHI\downloads\…\shaders_DLSS5Feeder.zip` | That is the DLSS5 Feeder package RHI downloads on its own. This setup does not use it, so nothing here is affected. Whether the detection is right is a question for RHI. |
 | PowerShell says `running scripts is disabled on this system` or `not digitally signed` | Run it as `powershell -ExecutionPolicy Bypass -File .\scripts\nr-config.ps1`. If you downloaded the repo as a ZIP: right-click `nr-config.ps1` → Properties → tick **Unblock**. |
 | FPS drops | Turn NR Cost Scaler on and lower its scale, for example `-CostScale 0.67`. Check that Frame Generation and Scaling in LS are on as in the LS settings table. Still low: lower the output resolution. |
 
@@ -225,7 +228,7 @@ RTX 50 is officially supported by NVIDIA. RTX 20–40 run on a community-patched
 
 #### The DLSS Tool (ShortFuse) add-on
 
-This is ShortFuse's `renodx-dlss` ReShade add-on, distributed through the [RenoDX Discord channel](https://discord.com/channels/1408098019194310818/1543975158937821315) rather than GitHub, and it changes often. RHI downloads it and installs it together with ReShade and the NR runtime. The script in step 4 writes `DirectNeuralRenderingRequireDlss=0` to ReShade.ini so the add-on agrees to run in a host without DLSS, such as LS.
+This is ShortFuse's `renodx-dlss` ReShade add-on, distributed through the [RenoDX Discord channel](https://discord.com/channels/1408098019194310818/1543975158937821315) rather than GitHub, and it changes often. RHI downloads it and installs it together with ReShade and the NR runtime. RHI does not create the add-on's NR keys in ReShade.ini, and without `DirectNeuralRenderingHookPoint` the add-on has nothing to hook, so LS scales without NR. The script in step 4 writes `DirectNeuralRenderingRequireDlss=0`, so the add-on agrees to run in a host without DLSS such as LS, and fills in Style, PassCount and HookPoint when they are missing.
 
 #### Auto-configure ReShade for FrameGen
 

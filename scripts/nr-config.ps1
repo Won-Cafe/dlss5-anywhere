@@ -162,6 +162,9 @@ $Hint = @{
   WhiteOverride = ' (0 / 1)'
 }
 $ModelNames = @('A', 'B', 'C')   # DirectNeuralRenderingStyle 0 / 1 / 2
+# RHI never creates these keys. Missing HookPoint = the add-on has nothing to hook, so LS scales without NR.
+# Written when the key is absent: Enter in the prompts, or any non-interactive run.
+$Suggested = [ordered]@{ Model = 'C'; PassCount = 1; HookPoint = 1 }
 
 # ---- locate Lossless Scaling --------------------------------------------------------------------
 
@@ -320,6 +323,7 @@ function Convert-ModelInput([string]$s) {
 }
 function Show-Param([string]$p) {
   $sec, $key = $Tunable[$p]; $cur = Get-IniValue $sec $key
+  if ($null -eq $cur -and $Suggested.Contains($p)) { return "(missing, will be set to $($Suggested[$p]))" }
   if ($p -eq 'Model') { return Show-Model $cur }
   return Show-Value $cur
 }
@@ -423,10 +427,17 @@ $wantCostScale = $null
 if ($PSBoundParameters.ContainsKey('CostScale')) { $wantCostScale = [double]$CostScale }
 
 function Read-Param([string]$p) {
-  # asks once for one parameter; stores into $requested; Enter keeps the current value
+  # asks once for one parameter; stores into $requested; Enter keeps the current value,
+  # or takes the suggested one when the key is not in the ini yet
+  $sec, $key = $Tunable[$p]
+  $useSuggested = ($null -eq (Get-IniValue $sec $key)) -and $Suggested.Contains($p)
+  $shown = if ($useSuggested) { "$($Suggested[$p]), suggested" } else { Show-Param $p }
   while ($true) {
-    $in = Read-Host ("  {0}{1} [{2}]" -f $p, $Hint[$p], (Show-Param $p))
-    if ([string]::IsNullOrWhiteSpace($in)) { return }
+    $in = Read-Host ("  {0}{1} [{2}]" -f $p, $Hint[$p], $shown)
+    if ([string]::IsNullOrWhiteSpace($in)) {
+      if ($useSuggested) { $script:requested[$p] = $Suggested[$p] }
+      return
+    }
     $in = $in.Trim().Replace(',', '.')
     if ($p -eq 'Model') {
       $m = Convert-ModelInput $in
@@ -448,7 +459,7 @@ if ($Interactive) {
   Assert-LsClosed
   Show-Current
   Write-Host ''
-  Write-Host 'Type a new value, or press Enter to keep the current one. Decimals use a dot (0.7).'
+  Write-Host 'Type a new value, or press Enter to take the one in brackets (current, or suggested when the key is missing). Decimals use a dot (0.7).'
   $curState = if (Test-AddonEnabled) { 'on' } else { 'off' }
   while ($true) {
     $a = Read-Host ("  Neural rendering (on / off) [{0}]" -f $curState)
@@ -520,6 +531,13 @@ foreach ($k in $Required.Keys) {
     Set-IniValue $MainSection $k $Required[$k]
     $changes += "[$MainSection] ${k}: $(Show-Value $cur) -> $($Required[$k])"
   }
+}
+
+# Fill in the suggested value for keys that are still absent (also on parameter-only runs such as -On -Launch).
+foreach ($p in $Suggested.Keys) {
+  if ($requested.Contains($p)) { continue }
+  $sec, $key = $Tunable[$p]
+  if ($null -eq (Get-IniValue $sec $key)) { $requested[$p] = $Suggested[$p] }
 }
 
 foreach ($p in $requested.Keys) {

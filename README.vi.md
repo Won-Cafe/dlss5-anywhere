@@ -8,7 +8,7 @@
 
 </div>
 
-> **Version v0.0.3** · `-Ota off` tắt bước driver NVIDIA kiểm tra model qua mạng, Scale lên hình sau vài giây thay vì hơn một phút.
+> **Version v0.0.4** · Script tự điền các key NR mà RHI không tạo (Model C, PassCount 1, HookPoint 1), cài mới không còn bị scale mà thiếu NR. Bước cài đổi thứ tự: bật NR Cost Scaler trước khi cài add-on, lần mở LS đầu tiên qua script.
 >
 > Đã chạy thử ngày 07/09/2026 trên RTX 5070 Ti với Lossless Scaling 3.2.2, RHI 2.6.3, ReShade 6.8.0, DLSS SR/RR/FG 310.9.0, NR DLL 310.8.2, driver NVIDIA 616.64.
 
@@ -87,15 +87,16 @@ Mở RHI, tìm thẻ **Lossless Scaling**. Không thấy thì bấm *Browse* và
 1. **Components** → *ReShade* → **Install**
 2. **Neural Rendering** → *Method* chọn **DLSS Tool (ShortFuse)** ([về add-on này](#add-on-dlss-tool-shortfuse))
 3. Bấm nút bánh răng cạnh **Remove** → **ShortFuse Settings** → gạt *Auto-configure ReShade for FrameGen* sang **Off** → **Save** ([vì sao](#auto-configure-reshade-for-framegen))
-4. **Neural Rendering** → **Install**
-5. Gạt **NR Cost Scaler** sang **On** ([vì sao](#nr-cost-scaler))
-6. **Launch** một lần, rồi đóng LS
+4. Gạt **NR Cost Scaler** sang **On** ([vì sao](#nr-cost-scaler)). Nút này bị khóa sau khi add-on đã cài: nếu đã cài rồi, **Remove** → gạt On → **Reinstall**.
+5. **Neural Rendering** → **Install**
+
+Chưa mở LS từ RHI hay Steam. Lần mở đầu tiên nằm ở bước 4, qua script.
 
 ![RHI: ReShade và Neural Rendering cho Lossless Scaling](images/rhi-install-ls.webp)
 
 ![RHI: ShortFuse Settings, tắt Auto-configure ReShade for FrameGen](images/rhi-turn-off-fix-framegen.webp)
 
-**Kiểm:** dòng trạng thái trong RHI hiện `✓ ReShade ✓ DLSS Tool (ShortFuse) ✓ DLSS SR ✓ DLSS RR ✓ DLSS FG ✓ NR DLL ✗ ASI Loader`, hàng NR Cost Scaler ghi *Installed*. Thư mục LS có file `ReShade.log`, dòng đầu là *Initializing crosire's ReShade*.
+**Kiểm:** dòng trạng thái trong RHI hiện `✓ ReShade ✓ DLSS Tool (ShortFuse) ✓ DLSS SR ✓ DLSS RR ✓ DLSS FG ✓ NR DLL ✗ ASI Loader`, hàng NR Cost Scaler ghi *Installed*. Thư mục LS có `dxgi.dll` (ReShade), `ReShade.ini`, `renodx-dlss.addon64` và `nvngx_dlssnr.ini`.
 
 ### 2. LosslessProxy + LSP-Windowed
 
@@ -122,11 +123,11 @@ Hoặc **Code › Download ZIP** trên GitHub rồi giải nén. Để đâu cũ
 .\scripts\nr-config.ps1
 ```
 
-Script hỏi lần lượt: bật hay tắt NR, **Model**, **PassCount**, **HookPoint**, **Cost Scaler** (bật tắt và tỉ lệ), bộ đếm FPS. Enter là giữ giá trị hiện tại. Rồi hỏi có vào phần nâng cao không, rồi hỏi mở LS.
+Script hỏi lần lượt: bật hay tắt NR, **Model**, **PassCount**, **HookPoint**, **Cost Scaler** (bật tắt và tỉ lệ), bộ đếm FPS. Enter là lấy giá trị trong ngoặc: giá trị hiện tại, hoặc giá trị đề xuất khi key chưa có trong `ReShade.ini` (RHI không tạo các key NR). Rồi hỏi có vào phần nâng cao không, rồi hỏi mở LS.
 
 ![nr-config.ps1](images/demo-script-nr-config.webp)
 
-Có tham số thì script không hỏi, ghi thẳng. Thêm `-Launch` để mở LS ngay sau khi ghi.
+Có tham số thì script không hỏi, ghi thẳng; key nào còn thiếu được ghi giá trị đề xuất (Model C, PassCount 1, HookPoint 1). Thêm `-Launch` để mở LS ngay sau khi ghi.
 
 | Tham số | Tác dụng |
 |---|---|
@@ -147,14 +148,14 @@ Có tham số thì script không hỏi, ghi thẳng. Thêm `-Launch` để mở 
 | `-Launch` | Mở LS, tắt hardware acceleration của WPF trong lúc LS chạy. |
 | `-LsPath "…"` | Đường dẫn thư mục LS, khi script không tự tìm thấy. |
 
-**Kiểm:** LS mở lên, chưa scale, mức dùng GPU trong Task Manager gần 0. Bấm **Scale** (`Ctrl+Alt+S`), hình đổi khác. `ReShade.log` có dòng báo NR khởi tạo thành công.
+**Kiểm:** `.\scripts\nr-config.ps1 -Show` không còn `(missing)` ở các hàng Style, PassCount, HookPoint. LS mở lên, chưa scale, mức dùng GPU trong Task Manager gần 0. Bấm **Scale** (`Ctrl+Alt+S`), hình đổi khác. `ReShade.log` có dòng `DLSS-NR direct: attached snippet …\nvngx_dlssnr.dll`.
 
 <details>
 <summary>Không dùng RHI</summary>
 
 1. Cài [ReShade](https://reshade.me) bản **with full add-on support** vào `LosslessScaling.exe`, API **Direct3D 10/11/12**, bỏ chọn mọi gói effect.
 2. Chép `renodx-dlss.addon64` và `nvngx_dlssnr.dll` đúng đời GPU (lấy từ [kênh Discord RenoDX](https://discord.com/channels/1408098019194310818/1543975158937821315)) vào thư mục LS. Chỉ để một file `renodx-dlss*.addon64`.
-3. Mở LS một lần rồi đóng. Làm tiếp bước 2, 3 và 4.
+3. Làm tiếp bước 2, 3 và 4. Chưa mở LS trước bước 4.
 
 </details>
 
@@ -190,7 +191,9 @@ Cấu hình đã chạy tốt khi thử nghiệm. Mở LS, vào profile đang d�
 | Triệu chứng | Cách xử lý |
 |---|---|
 | Bấm `Ctrl+Alt+S` mà chưa thấy gì thay đổi | Chờ một lúc. ReShade và add-on NR cần thời gian khởi động sau lần scale đầu. Nếu chờ từ một phút trở lên, chạy `-Ota off`. |
-| LS vừa mở lên đã bị ReShade xử lý, kể cả cửa sổ thiết lập | LS được mở không qua script. Kiểm bằng `reg query "HKCU\SOFTWARE\Microsoft\Avalon.Graphics"`, phải thấy `DisableHWAcceleration 0x1`. Đóng LS, mở lại bằng `.\scripts\nr-config.ps1 -Launch`. |
+| Scale chạy nhưng hình chỉ được LS upscale thường, không có NR, chờ mấy phút vẫn vậy | Các key NR chưa được ghi. Chạy `.\scripts\nr-config.ps1 -Show`: Style, PassCount, HookPoint không được còn `(missing)`. Chạy script một lần không tham số, Enter hết để lấy giá trị đề xuất. `-Fps on` cho biết ReShade có đang vẽ hay không. |
+| LS crash ngay khi vừa mở, hoặc cửa sổ thiết lập LS bị ReShade xử lý | LS được mở từ Steam hay RHI, không qua script. Kiểm bằng `reg query "HKCU\SOFTWARE\Microsoft\Avalon.Graphics"`, phải thấy `DisableHWAcceleration 0x1`. Đóng LS, mở lại bằng `.\scripts\nr-config.ps1 -Launch`. |
+| Windows Defender báo mã độc trong `RHI\downloads\…\shaders_DLSS5Feeder.zip` | Đó là gói DLSS5 Feeder mà RHI tự tải về. Setup này không dùng nó, không ảnh hưởng gì ở đây. Cảnh báo đúng hay sai là việc của phía RHI. |
 | PowerShell báo `running scripts is disabled on this system` hoặc `not digitally signed` | Chạy bằng `powershell -ExecutionPolicy Bypass -File .\scripts\nr-config.ps1`. Nếu tải repo dạng ZIP: chuột phải `nr-config.ps1` → Properties → tick **Unblock**. |
 | FPS tụt | Bật NR Cost Scaler, hạ tỉ lệ, ví dụ `-CostScale 0.67`. Kiểm Frame Generation và Scaling của LS đang bật như bảng Thiết lập LS. Vẫn thấp thì hạ độ phân giải ra. |
 
@@ -225,7 +228,7 @@ RTX 50 được NVIDIA hỗ trợ chính thức. RTX 20–40 chạy qua runtime 
 
 #### Add-on DLSS Tool (ShortFuse)
 
-Đây là add-on ReShade `renodx-dlss` của ShortFuse, phân phối qua [kênh Discord RenoDX](https://discord.com/channels/1408098019194310818/1543975158937821315), không phải GitHub, và đổi thường xuyên. RHI tải nó về và cài cùng ReShade, runtime NR. Script ở bước 4 ghi khoá `DirectNeuralRenderingRequireDlss=0` vào ReShade.ini để add-on chịu chạy trong một host không có DLSS như LS.
+Đây là add-on ReShade `renodx-dlss` của ShortFuse, phân phối qua [kênh Discord RenoDX](https://discord.com/channels/1408098019194310818/1543975158937821315), không phải GitHub, và đổi thường xuyên. RHI tải nó về và cài cùng ReShade, runtime NR. RHI không tạo các key NR của add-on trong ReShade.ini, và thiếu `DirectNeuralRenderingHookPoint` thì add-on không có chỗ để hook, LS scale mà không có NR. Script ở bước 4 ghi khoá `DirectNeuralRenderingRequireDlss=0` để add-on chịu chạy trong một host không có DLSS như LS, và ghi thêm Style, PassCount, HookPoint khi còn thiếu.
 
 #### Auto-configure ReShade for FrameGen
 
