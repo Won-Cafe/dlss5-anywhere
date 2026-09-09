@@ -8,9 +8,9 @@
 
 </div>
 
-> **Version v0.0.5** · Script hỏi bằng lời thường và tự ghi các khóa LS cần, gồm khóa `HookMethod` mới của add-on từng làm bản cài mới không có NR. Thêm Cost Scaler anamorphic và alternating frames, `-Scale`, cảnh báo khi RHI cài ReShade sau ASI loader, và mục [Vấn đề đã biết](#vấn-đề-đã-biết).
+> **Version v0.0.6** · Bớt một bước và một tool. NR Cost Scaler ra khỏi thiết lập: bản add-on ngày 09/09/2026 tự chạy model ở độ phân giải thấp hơn, nên `-Scale` là nút duy nhất để đổi FPS ([vì sao](#nr-cost-scaler)). Trước có bật Cost Scaler? **Reinstall** Neural Rendering trong RHI để xoá nó đi. Lossless Scaling giờ chạy với frame generation và scaling **tắt**: frame nội suy có thể méo hình và còn nhân thêm việc cho model ([vì sao](#frame-generation-của-ls)). Ảnh RHI và LS chụp lại mới.
 >
-> Đã chạy thử ngày 09/09/2026 trên RTX 5070 Ti với Lossless Scaling 3.2.2, RHI 2.6.5, ReShade 6.8.0, add-on RenoDX DLSS build 2026-09-07T17:23:53, DLSS SR/RR/FG 310.9.0, NR DLL 310.8.SF-v2, driver NVIDIA 616.64.
+> Đã chạy thử ngày 09/09/2026 trên RTX 5070 Ti với Lossless Scaling 3.2.2, RHI 2.6.8, ReShade 6.8.0, add-on RenoDX DLSS build 2026-09-09, DLSS SR/RR/FG 310.9.1, NR DLL 310.8.2, driver NVIDIA 616.64.
 
 Cài add-on DLSS 5 Neural Rendering (NR) một lần, vào **Lossless Scaling** (LS), thay vì vào từng game. LS bắt hình cửa sổ nào thì cửa sổ đó có NR. Không đụng file game.
 
@@ -70,9 +70,9 @@ Hiệu quả của NR rõ nhất ở nguồn có texture thấp. Với hình v�
 
 ## Cài đặt
 
-Cần **NVIDIA RTX 20 trở lên** với driver 616.64 trở lên ([chi tiết](#gpu-nào-chạy-được)), **[Lossless Scaling](https://store.steampowered.com/app/993090/)** trên Steam, và **[RHI](https://github.com/RankFTW/RHI/releases)**.
+Cần **NVIDIA RTX 20 trở lên** với driver 616.64 trở lên ([chi tiết](#gpu-nào-chạy-được)), **[Lossless Scaling](https://store.steampowered.com/app/993090/)** trên Steam, và **[RHI](https://github.com/RankFTW/RHI/releases)** — công cụ cài ReShade và các file DLSS thay cho bạn.
 
-Bốn bước, mỗi bước có một dòng **Kiểm**. Lý do nằm ở [Giải thích](#giải-thích).
+Bốn bước, mỗi bước có một dòng **Kiểm** để biết đã đúng chưa. Bước 2 không bắt buộc. Lý do nằm ở [Giải thích](#giải-thích).
 
 ### 1. RHI
 
@@ -81,20 +81,19 @@ Mở RHI, tìm thẻ **Lossless Scaling** (*Browse* tới thư mục LS nếu ch
 1. **Components** → *ReShade* → **Install**
 2. **Neural Rendering** → *Method* → **DLSS Tool (ShortFuse)**
 3. Bánh răng cạnh **Remove** → **ShortFuse Settings** → *Auto-configure ReShade for FrameGen* **Off** → **Save** ([vì sao](#auto-configure-reshade-for-framegen))
-4. **NR Cost Scaler** → **On** ([vì sao](#nr-cost-scaler)). Bị khóa vì add-on đã cài? **Remove** → gạt On → **Reinstall**.
-5. **Neural Rendering** → **Install**
+4. **Neural Rendering** → **Install**
 
-Chưa mở LS; lần mở đầu tiên nằm ở bước 4.
+Chưa mở LS — script sẽ mở LS lần đầu ở bước 4.
 
 ![RHI: ReShade và Neural Rendering cho Lossless Scaling](images/rhi-install-ls.webp)
 
 ![RHI: ShortFuse Settings, tắt Auto-configure ReShade for FrameGen](images/rhi-turn-off-fix-framegen.webp)
 
-**Kiểm:** RHI hiện `✓ ReShade ✓ DLSS Tool (ShortFuse) ✓ DLSS SR ✓ DLSS RR ✓ DLSS FG ✓ NR DLL ✗ ASI Loader` và *Installed* ở hàng NR Cost Scaler. Thư mục LS có `dxgi.dll`, `ReShade.ini`, `renodx-dlss.addon64`, `nvngx_dlssnr.ini`.
+**Kiểm:** RHI hiện `✓ ReShade ✓ DLSS Tool (ShortFuse) ✓ DLSS SR ✓ DLSS RR ✓ DLSS FG ✓ NR DLL ✗ ASI Loader`, và *NR Cost Scaler* để **Off**. Thư mục LS có `dxgi.dll`, `ReShade.ini`, `renodx-dlss.addon64`, `nvngx_dlssnr.dll`.
 
-### 2. LosslessProxy + LSP-Windowed
+### 2. LosslessProxy + LSP-Windowed — chỉ khi cần bắt cửa sổ
 
-Hai add-on không chính thức cho LS bắt được cửa sổ ([chi tiết](#losslessproxy-và-lsp-windowed)). Chỉ tải từ hai trang này. LS phải đang đóng.
+Bỏ qua bước này nếu bạn chơi game fullscreen: LS tự bắt được. Hai add-on không chính thức này là thứ giúp nó bắt được một *cửa sổ* — trình duyệt, giả lập, app chơi game mobile, game chạy cửa sổ ([chi tiết](#losslessproxy-và-lsp-windowed)). Chỉ tải từ hai trang này, và đóng LS trước.
 
 1. [LosslessProxy releases](https://github.com/FrankBarretta/LosslessProxy/releases): trong thư mục LS đổi tên `Lossless.dll` thành `Lossless_original.dll`, rồi chép `Lossless.dll` vừa tải vào.
 2. [LSP-Windowed releases](https://github.com/FrankBarretta/LSP-Windowed/releases): giải nén `LSP-Windowed.zip` vào `addons\LSP-Windowed\` trong thư mục LS.
@@ -111,7 +110,7 @@ Hoặc **Code › Download ZIP** rồi giải nén ở đâu cũng được.
 
 ### 4. Chạy script
 
-Trong PowerShell, tại thư mục repo:
+Trong PowerShell, tại thư mục repo (trong Explorer: chuột phải thư mục → *Open in Terminal*):
 
 ```powershell
 .\scripts\nr-config.ps1
@@ -128,11 +127,7 @@ Có tham số thì không hỏi gì. `-Launch` mở LS sau khi ghi.
 | `-On` / `-Off` | Bật hoặc tắt add-on NR. |
 | `-Model A\|B\|C` | Model NR. |
 | `-PassCount n` | Số pass NR mỗi frame, 1 đến 10. |
-| `-Scale n` | Resolution scale riêng của add-on, phần trăm. 100 = tắt. Dùng nó hoặc Cost Scaler, không cả hai. |
-| `-CostScaler on\|off` | Bật hoặc tắt NR Cost Scaler. |
-| `-CostScale x` | Độ phân giải của Cost Scaler, 0.25 đến 1.00. |
-| `-CostScaleX x` `-CostScaleY y` | Cost Scaler anamorphic, mỗi chiều 0.25 đến 1.00. Preset của tool: 0.65/0.85, 0.50/0.75, 0.80/0.90. |
-| `-Alternating on\|off` | Cost Scaler chạy NR cách một frame. |
+| `-Scale n` | Độ phân giải model chạy, phần trăm khung hình. Càng thấp càng nhanh, 100 = như gốc. Đây là nút đổi FPS. |
 | `-Intensity x` | Độ mạnh hiệu ứng, 0 đến 1. |
 | `-AutoMask 0\|1` | Mặt nạ nhân vật tắt hoặc bật. |
 | `-GlobalTone x` `-LocalTone x` | Độ mạnh tone, 0 đến 1. |
@@ -161,10 +156,9 @@ Có tham số thì không hỏi gì. `-Launch` mở LS sau khi ghi.
 
 - **Mở LS:** `.\scripts\nr-config.ps1 -Launch`, không mở từ Steam ([vì sao](#khoá-disablehwacceleration)). Shortcut một click: `powershell -ExecutionPolicy Bypass -File "<repo>\scripts\nr-config.ps1" -Launch`.
 - **So trước sau:** bật tắt Scale, hoặc `-Off -Launch` rồi `-On -Launch`.
-- **Chỉnh:** đóng LS, chạy script, mở LS lại. Khởi điểm tốt: Model C, Intensity 0.6–0.7, Cost Scaler 0.75.
-- **Phím tắt Cost Scaler khi đang scale:** `Ctrl+Alt+Space` bật tắt, `Ctrl+Alt+PgUp` / `PgDn` độ phân giải, `Ctrl+Alt+End` chế độ dựng lại.
+- **Chỉnh:** đóng LS, chạy script, mở LS lại. Khởi điểm tốt: Model C, 1 pass, Intensity 0.6–0.7, Scale 75.
 - **Cập nhật:** RHI → **Reinstall** hàng có bản mới, rồi `-Show` để chắc thiết lập còn nguyên ([vấn đề đã biết](#vấn-đề-đã-biết)).
-- **Gỡ:** RHI → tắt NR Cost Scaler → **Remove** ở Neural Rendering → **✕** ở ReShade. Trong thư mục LS xóa `Lossless.dll` proxy, đổi tên `Lossless_original.dll` lại, xóa `addons\LSP-Windowed`.
+- **Gỡ:** RHI → **Remove** ở Neural Rendering → **✕** ở ReShade. Trong thư mục LS xóa `Lossless.dll` proxy, đổi tên `Lossless_original.dll` lại, xóa `addons\LSP-Windowed`.
 
 **Thiết lập LS** đã chạy tốt khi thử. Chọn profile trong LS và chỉnh theo ảnh.
 
@@ -172,10 +166,10 @@ Có tham số thì không hỏi gì. `-Launch` mở LS sau khi ghi.
 
 | Mục | Thiết lập |
 |---|---|
-| Frame Generation | LSFG 3.1, Mode **Adaptive**, Target **60**, Flow scale tối đa, Performance tắt ([giới hạn](#frame-generation-của-ls)) |
-| Scaling | Type **FSR**, Mode **Auto**, Sharpness ở giữa, Optimized version tắt |
+| Frame Generation | Type **Off** ([vì sao](#frame-generation-của-ls)) |
+| Scaling | Type **Off** — ở đây LS chỉ chụp và present. Chỉ bật khi bạn muốn LS upscale luôn |
 | Capture | API **WGC**, Queue target **1** |
-| Rendering | Sync **Off (Allow tearing)**, Max frame latency **3**, HDR support bật |
+| Rendering | Sync mode **Default**, Max frame latency **3**, HDR support bật, G-Sync bật, Draw FPS tắt |
 | GPU & Display | Preferred GPU **Auto**, hoặc chọn thẳng card NVIDIA nếu có nhiều card. Output display: màn hình và độ phân giải bạn chơi |
 
 ---
@@ -183,9 +177,9 @@ Có tham số thì không hỏi gì. `-Launch` mở LS sau khi ghi.
 ## Vấn đề đã biết
 
 - **LS có thể treo cả màn hình khi dừng scale.** Unscale (`Ctrl+Alt+S`) hay LS tự dừng vì game mất focus làm LS hủy swapchain trong khi add-on còn dùng tài nguyên GPU. Hậu quả từ LS đóng tới lỗi GPU phải reset máy (RTX 5070 Ti, driver 616.64, Application log sự kiện *nvlddmkm* 13). Lỗi nằm ở phần teardown của add-on và đã được báo. Cách tránh: scale một lần cho cả phiên, giữ game ở trước, thoát game trước khi đóng LS.
-- **NR trả chi phí theo từng frame output.** Hai pass tốn gấp đôi, frame generation của LS nhân khối lượng, 4K nặng khoảng bốn lần 1080p. Khoảng 20 ms mỗi pass ở 4K trên RTX 5070 Ti; Cost Scaler kéo xuống ([vì sao](#frame-generation-của-ls)).
+- **NR trả chi phí theo từng frame output.** Hai pass tốn gấp đôi, bật frame generation sẽ nhân khối lượng lên, 4K nặng khoảng bốn lần 1080p. Khoảng 20 ms mỗi pass ở 4K trên RTX 5070 Ti; `-Scale` kéo xuống ([vì sao](#frame-generation-của-ls)).
 - **Lần Scale đầu có thể mất một phút** vì driver hỏi máy chủ NVIDIA về model. `-Ota off`.
-- **Cài lại qua RHI có thể làm hỏng thiết lập.** *Auto-configure ReShade for FrameGen* có thể bật lại, và cài add-on sau Cost Scaler thì DLL của Cost Scaler bị ghi đè. Sau mỗi thao tác RHI chạy `-Show`: có cảnh báo là trường hợp đầu, hàng Cost Scaler trống là trường hợp sau (gạt NR Cost Scaler off rồi on trong RHI).
+- **Cài lại qua RHI có thể làm hỏng thiết lập.** *Auto-configure ReShade for FrameGen* có thể bật lại. Sau mỗi thao tác RHI chạy `-Show`: script cảnh báo và ghi lại các khóa.
 
 ---
 
@@ -199,7 +193,7 @@ Có tham số thì không hỏi gì. `-Launch` mở LS sau khi ghi.
 | LS crash khi mở, hoặc chính cửa sổ LS bị NR | LS được mở không qua script. `reg query "HKCU\SOFTWARE\Microsoft\Avalon.Graphics"` phải thấy `DisableHWAcceleration 0x1`. Đóng LS, `-Launch`. |
 | Defender báo `RHI\downloads\…\shaders_DLSS5Feeder.zip` | RHI tự tải gói DLSS5 Feeder. Setup này không dùng nó. |
 | PowerShell: *running scripts is disabled* hoặc *not digitally signed* | `powershell -ExecutionPolicy Bypass -File .\scripts\nr-config.ps1`. Tải dạng ZIP: chuột phải script → Properties → **Unblock**. |
-| FPS thấp | Bật Cost Scaler, `-CostScale 0.67` hoặc thấp hơn. Frame Generation và Scaling của LS bật như bảng. Rồi hạ độ phân giải output. |
+| FPS thấp | `-Scale 75`, rồi thấp hơn nữa. Một pass. Rồi hạ độ phân giải output trong LS (GPU & Display → Output display). |
 
 Vẫn kẹt? Mở issue kèm `ReShade.log`, GPU và driver, phiên bản LS, và **Copy Report** của RHI.
 
@@ -216,7 +210,7 @@ flowchart LR
     SRC["Game · video · cửa sổ bất kỳ"] -->|"LS bắt hình"| UP
     subgraph LS["Lossless Scaling"]
         direction LR
-        UP["Upscale"] --> FG["LSFG"] --> PR["Present"]
+        UP["Upscale<br/>(tắt ở đây)"] --> FG["LSFG<br/>(tắt ở đây)"] --> PR["Present"]
         PR --> NR["Add-on DLSS<br/>nvngx_dlssnr mỗi frame"]
     end
     NR --> OUT["Màn hình"]
@@ -238,7 +232,7 @@ Dành cho game có DLSS Frame Generation: đổi tên ReShade thành `Reshade64.
 
 #### NR Cost Scaler
 
-[DLSSNR-Cost-Scaler](https://github.com/xenmods/DLSSNR-Cost-Scaler) của xenmods đứng giữa add-on và runtime NR, chạy model ở độ phân giải thấp hơn rồi đặt phần chi tiết neural lên khung hình đủ độ phân giải. Cấu hình trong `nvngx_dlssnr.ini`; script điều khiển bằng `-CostScaler`, `-CostScale`, `-CostScaleX/Y`, `-Alternating`. `-Scale` của chính add-on làm cùng việc; dùng một trong hai.
+Để **tắt**. [DLSSNR-Cost-Scaler](https://github.com/xenmods/DLSSNR-Cost-Scaler) của xenmods chạy model ở độ phân giải thấp hơn từ thời add-on chưa làm được — chính là mẹo làm NR đủ nhẹ để dùng. Bản add-on ngày 09/09/2026 đã có sẵn (`DirectNeuralRenderingProcessingScale`, tức `-Scale` của script), nên thêm một lớp co giãn nữa chỉ làm khung hình bị co giãn hai lần. Nếu trước đây bạn có bật, hãy xoá đi: RHI → *NR Cost Scaler* **Off** → **Reinstall** ở Neural Rendering, bước này trả lại `nvngx_dlssnr.dll` gốc. Script thì không can thiệp gì tới nó.
 
 #### LosslessProxy và LSP-Windowed
 
@@ -250,7 +244,7 @@ Cửa sổ của chính LS là WPF, vẽ qua D3D, nên NR sẽ xử lý cả c�
 
 #### Frame Generation của LS
 
-NR chạy trên mỗi frame LS xuất ra, gồm cả frame nội suy. Frame generation vì thế nhân khối lượng NR thay vì thêm frame miễn phí, và chi phí NR mỗi frame đặt trần cho FPS output. Nó vẫn giúp một chút, nên bảng thiết lập để bật.
+Để tắt. NR chạy trên mỗi frame LS xuất ra, gồm cả frame nội suy, nên frame generation nhân khối lượng NR thay vì thêm frame rẻ, mà chi phí NR mỗi frame vốn đã đặt trần cho FPS output. Có NR trong đường present, frame nội suy còn có thể bị méo hình rõ rệt.
 
 ### Giới hạn
 

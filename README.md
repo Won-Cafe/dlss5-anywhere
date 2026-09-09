@@ -8,9 +8,9 @@
 
 </div>
 
-> **Version v0.0.5** · The script asks in plain words and writes the keys LS needs by itself, including the add-on's new `HookMethod` key that left fresh installs without NR. Cost Scaler anamorphic and alternating-frames options, `-Scale`, a warning when RHI has put ReShade behind an ASI loader, and a [Known issues](#known-issues) section.
+> **Version v0.0.6** · One step and one tool less. The NR Cost Scaler is out of the setup: the add-on build from 2026-09-09 runs the model at a lower resolution itself, so `-Scale` is the single dial for FPS ([why](#nr-cost-scaler)). Had the Cost Scaler on before? **Reinstall** Neural Rendering in RHI to get rid of it. Lossless Scaling now runs with frame generation and scaling **off**: generated frames can come out warped and they multiply the neural work ([why](#ls-frame-generation)). Fresh RHI and LS screenshots.
 >
-> Last tested 2026-09-09 on an RTX 5070 Ti with Lossless Scaling 3.2.2, RHI 2.6.5, ReShade 6.8.0, RenoDX DLSS add-on build 2026-09-07T17:23:53, DLSS SR/RR/FG 310.9.0, NR DLL 310.8.SF-v2, NVIDIA driver 616.64.
+> Last tested 2026-09-09 on an RTX 5070 Ti with Lossless Scaling 3.2.2, RHI 2.6.8, ReShade 6.8.0, RenoDX DLSS add-on build 2026-09-09, DLSS SR/RR/FG 310.9.1, NR DLL 310.8.2, NVIDIA driver 616.64.
 
 Install the DLSS 5 Neural Rendering add-on (NR) once, into **Lossless Scaling** (LS), instead of into each game. Whatever LS captures gets NR. Game files are not touched.
 
@@ -70,9 +70,9 @@ NR makes the biggest difference on low-texture sources. On images that are alrea
 
 ## Install
 
-You need an **NVIDIA RTX 20 or newer** with driver 616.64 or later ([details](#which-gpus-work)), **[Lossless Scaling](https://store.steampowered.com/app/993090/)** from Steam, and **[RHI](https://github.com/RankFTW/RHI/releases)**.
+You need an **NVIDIA RTX 20 or newer** with driver 616.64 or later ([details](#which-gpus-work)), **[Lossless Scaling](https://store.steampowered.com/app/993090/)** from Steam, and **[RHI](https://github.com/RankFTW/RHI/releases)**, the installer that puts ReShade and the DLSS files in place for you.
 
-Four steps, each with a **Check** line. Reasons are in [Explained](#explained).
+Four steps, each with a **Check** line to confirm it worked. Step 2 is optional. Reasons are in [Explained](#explained).
 
 ### 1. RHI
 
@@ -81,20 +81,19 @@ Open RHI and find the **Lossless Scaling** card (*Browse* to the LS folder if it
 1. **Components** → *ReShade* → **Install**
 2. **Neural Rendering** → *Method* → **DLSS Tool (ShortFuse)**
 3. Gear next to **Remove** → **ShortFuse Settings** → *Auto-configure ReShade for FrameGen* **Off** → **Save** ([why](#auto-configure-reshade-for-framegen))
-4. **NR Cost Scaler** → **On** ([why](#nr-cost-scaler)). Locked because the add-on is already installed? **Remove** → switch on → **Reinstall**.
-5. **Neural Rendering** → **Install**
+4. **Neural Rendering** → **Install**
 
-Do not open LS yet; the first launch is in step 4.
+Do not open LS yet — the script starts it for the first time in step 4.
 
 ![RHI: ReShade and Neural Rendering for Lossless Scaling](images/rhi-install-ls.webp)
 
 ![RHI: ShortFuse Settings, Auto-configure ReShade for FrameGen turned off](images/rhi-turn-off-fix-framegen.webp)
 
-**Check:** RHI shows `✓ ReShade ✓ DLSS Tool (ShortFuse) ✓ DLSS SR ✓ DLSS RR ✓ DLSS FG ✓ NR DLL ✗ ASI Loader` and *Installed* on the NR Cost Scaler row. The LS folder has `dxgi.dll`, `ReShade.ini`, `renodx-dlss.addon64`, `nvngx_dlssnr.ini`.
+**Check:** RHI shows `✓ ReShade ✓ DLSS Tool (ShortFuse) ✓ DLSS SR ✓ DLSS RR ✓ DLSS FG ✓ NR DLL ✗ ASI Loader`, and *NR Cost Scaler* stays **Off**. The LS folder has `dxgi.dll`, `ReShade.ini`, `renodx-dlss.addon64`, `nvngx_dlssnr.dll`.
 
-### 2. LosslessProxy + LSP-Windowed
+### 2. LosslessProxy + LSP-Windowed — only for windows
 
-Two unofficial add-ons that let LS capture windows ([details](#losslessproxy-and-lsp-windowed)). Download only from these two pages. LS must be closed.
+Skip this if you play fullscreen games: LS captures those on its own. These two unofficial add-ons are what let it capture a *window* — browsers, emulators, mobile-game players, windowed games ([details](#losslessproxy-and-lsp-windowed)). Download only from these two pages, and close LS first.
 
 1. [LosslessProxy releases](https://github.com/FrankBarretta/LosslessProxy/releases): in the LS folder rename `Lossless.dll` to `Lossless_original.dll`, then copy the downloaded `Lossless.dll` in.
 2. [LSP-Windowed releases](https://github.com/FrankBarretta/LSP-Windowed/releases): extract `LSP-Windowed.zip` into `addons\LSP-Windowed\` inside the LS folder.
@@ -111,7 +110,7 @@ Or **Code › Download ZIP** and extract it anywhere.
 
 ### 4. Run the script
 
-In PowerShell, in the repo folder:
+In PowerShell, from the repo folder (in Explorer: right-click the folder → *Open in Terminal*):
 
 ```powershell
 .\scripts\nr-config.ps1
@@ -128,11 +127,7 @@ With parameters it asks nothing. `-Launch` starts LS afterwards.
 | `-On` / `-Off` | NR add-on on or off. |
 | `-Model A\|B\|C` | NR model. |
 | `-PassCount n` | NR passes per frame, 1 to 10. |
-| `-Scale n` | The add-on's own resolution scale, percent. 100 = off. Use it or the Cost Scaler, not both. |
-| `-CostScaler on\|off` | NR Cost Scaler on or off. |
-| `-CostScale x` | Cost Scaler resolution, 0.25 to 1.00. |
-| `-CostScaleX x` `-CostScaleY y` | Cost Scaler anamorphic resolution, 0.25 to 1.00 each. The tool's presets: 0.65/0.85, 0.50/0.75, 0.80/0.90. |
-| `-Alternating on\|off` | Cost Scaler runs NR on every other frame. |
+| `-Scale n` | Resolution the model runs at, percent of the frame. Lower is faster, 100 = original. The FPS dial. |
 | `-Intensity x` | Effect strength, 0 to 1. |
 | `-AutoMask 0\|1` | Character mask off or on. |
 | `-GlobalTone x` `-LocalTone x` | Tone strength, 0 to 1. |
@@ -161,10 +156,9 @@ With parameters it asks nothing. `-Launch` starts LS afterwards.
 
 - **Start LS:** `.\scripts\nr-config.ps1 -Launch`, not Steam ([why](#the-disablehwacceleration-key)). Shortcut target for one click: `powershell -ExecutionPolicy Bypass -File "<repo>\scripts\nr-config.ps1" -Launch`.
 - **Before and after:** toggle Scale, or `-Off -Launch` then `-On -Launch`.
-- **Tune:** close LS, run the script, start LS again. Good start: Model C, Intensity 0.6–0.7, Cost Scaler 0.75.
-- **Cost Scaler hotkeys while scaling:** `Ctrl+Alt+Space` on/off, `Ctrl+Alt+PgUp` / `PgDn` resolution, `Ctrl+Alt+End` reconstruction mode.
+- **Tune:** close LS, run the script, start LS again. Good start: Model C, 1 pass, Intensity 0.6–0.7, Scale 75.
 - **Update:** RHI → **Reinstall** the rows with a new version, then `-Show` to check the setup survived ([known issues](#known-issues)).
-- **Remove:** RHI → NR Cost Scaler off → **Remove** on Neural Rendering → **✕** on ReShade. In the LS folder delete the proxy `Lossless.dll`, rename `Lossless_original.dll` back, delete `addons\LSP-Windowed`.
+- **Remove:** RHI → **Remove** on Neural Rendering → **✕** on ReShade. In the LS folder delete the proxy `Lossless.dll`, rename `Lossless_original.dll` back, delete `addons\LSP-Windowed`.
 
 **LS settings** that worked in testing. Pick your profile in LS and match the screenshot.
 
@@ -172,10 +166,10 @@ With parameters it asks nothing. `-Launch` starts LS afterwards.
 
 | Section | Setting |
 |---|---|
-| Frame Generation | LSFG 3.1, Mode **Adaptive**, Target **60**, Flow scale max, Performance off ([limits](#ls-frame-generation)) |
-| Scaling | Type **FSR**, Mode **Auto**, Sharpness middle, Optimized version off |
+| Frame Generation | Type **Off** ([why](#ls-frame-generation)) |
+| Scaling | Type **Off** — here LS only captures and presents. Turn it on only if you want LS to upscale as well |
 | Capture | API **WGC**, Queue target **1** |
-| Rendering | Sync **Off (Allow tearing)**, Max frame latency **3**, HDR support on |
+| Rendering | Sync mode **Default**, Max frame latency **3**, HDR support on, G-Sync on, Draw FPS off |
 | GPU & Display | Preferred GPU **Auto**, or the NVIDIA card if you have several. Output display: the monitor and resolution you play on |
 
 ---
@@ -183,9 +177,9 @@ With parameters it asks nothing. `-Launch` starts LS afterwards.
 ## Known issues
 
 - **LS can freeze the whole screen when scaling stops.** Unscaling (`Ctrl+Alt+S`) or LS stopping because the game lost focus destroys LS's swapchain while the add-on still uses GPU resources. Outcomes range from LS closing to a GPU fault that needs a hard reset (RTX 5070 Ti, driver 616.64, Application log event *nvlddmkm* 13). The fault is in the add-on's teardown and has been reported. Avoid it: scale once for the whole session, keep the game in front, quit the game before closing LS.
-- **NR pays per output frame.** Two passes cost twice, LS frame generation multiplies the work, 4K is about four times 1080p. Roughly 20 ms per pass at 4K on an RTX 5070 Ti; the Cost Scaler brings that down ([why](#ls-frame-generation)).
+- **NR pays per output frame.** Two passes cost twice, frame generation would multiply the work, 4K is about four times 1080p. Roughly 20 ms per pass at 4K on an RTX 5070 Ti; `-Scale` brings that down ([why](#ls-frame-generation)).
 - **The first Scale can take a minute** while the driver asks NVIDIA's servers for models. `-Ota off`.
-- **RHI reinstalls can undo the setup.** *Auto-configure ReShade for FrameGen* can come back on, and installing the add-on after the Cost Scaler overwrites the Cost Scaler's DLL. After any RHI action run `-Show`: a warning is the first case, an empty Cost Scaler row is the second (switch NR Cost Scaler off and on in RHI).
+- **RHI reinstalls can undo the setup.** *Auto-configure ReShade for FrameGen* can come back on. Run `-Show` after any RHI action; the script warns and writes the keys again.
 
 ---
 
@@ -199,7 +193,7 @@ With parameters it asks nothing. `-Launch` starts LS afterwards.
 | LS crashes on start, or the LS window itself gets NR | LS was started without the script. `reg query "HKCU\SOFTWARE\Microsoft\Avalon.Graphics"` should show `DisableHWAcceleration 0x1`. Close LS, `-Launch`. |
 | Defender flags `RHI\downloads\…\shaders_DLSS5Feeder.zip` | RHI downloads the DLSS5 Feeder package on its own. This setup does not use it. |
 | PowerShell: *running scripts is disabled* or *not digitally signed* | `powershell -ExecutionPolicy Bypass -File .\scripts\nr-config.ps1`. From a ZIP: right-click the script → Properties → **Unblock**. |
-| Low FPS | Cost Scaler on, `-CostScale 0.67` or lower. LS Frame Generation and Scaling on as in the table. Then lower the output resolution. |
+| Low FPS | `-Scale 75`, then lower. One pass. Then lower the output resolution in LS (GPU & Display → Output display). |
 
 Still stuck? Open an issue with `ReShade.log`, GPU and driver, LS version, and RHI's **Copy Report**.
 
@@ -216,7 +210,7 @@ flowchart LR
     SRC["Game · video · any window"] -->|"LS captures"| UP
     subgraph LS["Lossless Scaling"]
         direction LR
-        UP["Upscale"] --> FG["LSFG"] --> PR["Present"]
+        UP["Upscale<br/>(off here)"] --> FG["LSFG<br/>(off here)"] --> PR["Present"]
         PR --> NR["DLSS add-on<br/>nvngx_dlssnr every frame"]
     end
     NR --> OUT["Display"]
@@ -238,7 +232,7 @@ Meant for games with DLSS Frame Generation: it renames ReShade to `Reshade64.asi
 
 #### NR Cost Scaler
 
-[DLSSNR-Cost-Scaler](https://github.com/xenmods/DLSSNR-Cost-Scaler) by xenmods sits between the add-on and the NR runtime, runs the model at a lower resolution, and puts the neural detail back onto the full-resolution frame. Settings live in `nvngx_dlssnr.ini`; the script drives them with `-CostScaler`, `-CostScale`, `-CostScaleX/Y`, `-Alternating`. The add-on's own `-Scale` does the same job; use one of the two.
+Leave it **off**. [DLSSNR-Cost-Scaler](https://github.com/xenmods/DLSSNR-Cost-Scaler) by xenmods ran the model at a lower resolution back when the add-on could not — the trick that made NR affordable. The 2026-09-09 add-on build has it built in (`DirectNeuralRenderingProcessingScale`, the script's `-Scale`), so a second scaler would only scale the same frame twice. If you switched it on in an earlier setup, remove it: RHI → *NR Cost Scaler* **Off** → **Reinstall** on Neural Rendering, which puts the original `nvngx_dlssnr.dll` back. The script ignores it either way.
 
 #### LosslessProxy and LSP-Windowed
 
@@ -250,7 +244,7 @@ LS's own window is WPF, which draws through D3D, so NR would process the setting
 
 #### LS Frame Generation
 
-NR runs on every frame LS outputs, generated frames included. Frame generation therefore multiplies the NR work instead of adding free frames, and the NR cost per frame caps the output FPS. It still helps a little, so the settings table keeps it on.
+Keep it off. NR runs on every frame LS outputs, generated frames included, so frame generation multiplies the neural work instead of adding cheap frames, and the NR cost per frame caps the output FPS anyway. With NR in the present path the generated frames can also come out visibly warped.
 
 ### Limitations
 
