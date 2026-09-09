@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   dlss5-anywhere - set up, tune, switch and launch DLSS Neural Rendering inside Lossless Scaling.
 
@@ -7,11 +7,12 @@
   go to the game, not to LS), so everything is done on disk, in ReShade.ini. This script touches
   only the places below and leaves every other line alone:
     [ADDON]  DisabledAddons           - turn the "RenoDX DLSS" add-on on or off
-    [RENODX-DLSS]                     - keys a non-DLSS host needs, hook point, colour/UI handling
-    [RENODX-DLSS-preset1]             - the image parameters (model, intensity, ...)
+    [RENODX-DLSS]                     - keys a non-DLSS host needs (RequireDlss, both hook keys: always written), colour/UI handling
+    [RENODX-DLSS-preset1]             - the image parameters (model, passes, intensity, the add-on's own resolution scale, ...)
     [OVERLAY]  ShowFPS, ShowFrameTime  - ReShade's own FPS counter (-Fps), for diagnosis
-  and, when the NR Cost Scaler is installed, two keys in nvngx_dlssnr.ini:
-    [DLSSNR_Proxy] EnableProxy, ResolutionScale  - Cost Scaler on/off and internal resolution (-CostScaler, -CostScale)
+  and, when the NR Cost Scaler is installed, keys in nvngx_dlssnr.ini:
+    [DLSSNR_Proxy] EnableProxy, ResolutionScale, EnableAnamorphic, ResolutionScaleX/Y, EnableAlternatingFrames
+                                      - Cost Scaler on/off, resolution, anamorphic X/Y, alternating frames
   and one machine-wide registry value, only when asked with -Ota:
     HKLM\SOFTWARE\NVIDIA Corporation\Global\NGXCore\EnableOTA  - NGX over-the-air model check (needs admin, UAC prompt)
 
@@ -46,7 +47,23 @@
 
 .PARAMETER CostScale
   Internal resolution scale for the Cost Scaler, 0.25 to 1.00. Lower = more FPS, less detail.
-  0.75 is the author's recommended sweet spot (about 40 % faster neural pass).
+  0.75 is the author's recommended sweet spot (about 40 % faster neural pass). Uniform: turns anamorphic off.
+
+.PARAMETER CostScaleX
+  Anamorphic Cost Scaler: horizontal scale, 0.25 to 1.00. Setting X or Y turns EnableAnamorphic on.
+  The Cost Scaler's own presets: Widescreen 0.65/0.85, Ultra-Perf 0.50/0.75, Quality 0.80/0.90.
+
+.PARAMETER CostScaleY
+  Anamorphic Cost Scaler: vertical scale, 0.25 to 1.00.
+
+.PARAMETER Alternating
+  on / off. Cost Scaler "Alternating Frames": runs NR on every other frame and reuses the result in between.
+  More FPS, but the tool itself warns about uneven (sawtooth) frame pacing; judge camera motion by eye.
+
+.PARAMETER Scale
+  The add-on's own resampling (DirectNeuralRenderingProcessingScale), in percent of width and height: 100 = off,
+  75 = NR runs on a 75 % frame and the correction is applied back at full resolution (RGB residual). Same idea
+  as the Cost Scaler, built into the add-on since 2026-09-09. Use one of the two; the script warns when both are on.
 
 .PARAMETER Ota
   on / off. NGX "over the air" check: when a DLSS feature is created, the NVIDIA driver asks
@@ -63,10 +80,11 @@
 
 .EXAMPLE
   .\nr-config.ps1
-  No parameters: asks on/off, model, pass count, hook point, Cost Scaler, FPS counter, offers the advanced keys, writes, offers to start LS.
+  No parameters: shows the current setup, asks on/off, AI model, passes, Cost Scaler, FPS counter, offers the advanced
+  settings, writes (the keys LS always needs included), offers to start LS.
 .EXAMPLE
   .\nr-config.ps1 -Launch
-  Just start LS the right way. Nothing is asked; the required key is checked on the way.
+  Just start LS the right way. Nothing is asked; the keys LS always needs are checked on the way.
 .EXAMPLE
   .\nr-config.ps1 -Off -Launch
   Start LS with neural rendering off, for a before/after comparison.
@@ -96,8 +114,8 @@ param(
   [double]$LocalStructure,   # DirectNeuralRenderingLocalStructureStrength
   [double]$SkinStructure,    # DirectNeuralRenderingSkinStructureStrength
 
-  # [RENODX-DLSS]
-  [int]$HookPoint,           # DirectNeuralRenderingHookPoint        (known-good setup for LS: 1)
+  # [RENODX-DLSS]   (the hook keys are not parameters: the script always writes the values LS needs, see $Required)
+  [int]$Scale,               # DirectNeuralRenderingProcessingScale  add-on's own resampling, percent (100 = off)
   [int]$UiCorrection,        # DirectNeuralRenderingUiCorrectionMode
   [int]$Encoding,            # DirectNeuralRenderingEncoding
   [int]$WhiteNits,           # DirectNeuralRenderingDiffuseWhiteNits
@@ -111,7 +129,13 @@ param(
   [ValidateSet('on', 'off')]
   [string]$CostScaler,       # EnableProxy 1 / 0
   [ValidateRange(0.25, 1.0)]
-  [double]$CostScale,        # ResolutionScale
+  [double]$CostScale,        # ResolutionScale (uniform; also turns EnableAnamorphic off)
+  [ValidateRange(0.25, 1.0)]
+  [double]$CostScaleX,       # ResolutionScaleX (anamorphic; turns EnableAnamorphic on)
+  [ValidateRange(0.25, 1.0)]
+  [double]$CostScaleY,       # ResolutionScaleY
+  [ValidateSet('on', 'off')]
+  [string]$Alternating,      # EnableAlternatingFrames 1 / 0
 
   # HKLM\SOFTWARE\NVIDIA Corporation\Global\NGXCore (NVIDIA driver, machine-wide, admin)
   [ValidateSet('on', 'off')]
@@ -128,7 +152,15 @@ if ($On -and $Off) { throw 'Pass either -On or -Off, not both.' }
 $AddonName = 'RenoDX DLSS'     # as registered in ReShade.log: Registered add-on "RenoDX DLSS"
 
 # Required for LS (a host without native DLSS). Value taken from a working ReShade.ini, 2026-09-06.
-$Required = [ordered]@{ 'DirectNeuralRenderingRequireDlss' = '0' }
+# Keys that have exactly one right value in LS, written on every run, never asked:
+#   RequireDlss 0  - the add-on agrees to run in a host without native DLSS
+#   HookPoint 1    - "auto", read by add-on builds before 2026-09-09
+#   HookMethod 2   - "present", read by add-on builds from 2026-09-09 (each build ignores the other's key)
+$Required = [ordered]@{
+  'DirectNeuralRenderingRequireDlss' = '0'
+  'DirectNeuralRenderingHookPoint'   = '1'
+  'DirectNeuralRenderingHookMethod'  = '2'
+}
 $MainSection = 'RENODX-DLSS'
 $PresetSection = 'RENODX-DLSS-preset1'
 $OverlaySection = 'OVERLAY'
@@ -140,7 +172,7 @@ $ProxySection = 'DLSSNR_Proxy'
 $Tunable = [ordered]@{
   Model          = @($PresetSection, 'DirectNeuralRenderingStyle')
   PassCount      = @($PresetSection, 'DirectNeuralRenderingPassCount')
-  HookPoint      = @($MainSection,   'DirectNeuralRenderingHookPoint')
+  Scale          = @($PresetSection, 'DirectNeuralRenderingProcessingScale')
   Intensity      = @($PresetSection, 'DirectNeuralRenderingIntensity')
   AutoMask       = @($PresetSection, 'DirectNeuralRenderingAutoMask')
   GlobalTone     = @($PresetSection, 'DirectNeuralRenderingGlobalToneStrength')
@@ -152,19 +184,42 @@ $Tunable = [ordered]@{
   WhiteNits      = @($MainSection,   'DirectNeuralRenderingDiffuseWhiteNits')
   WhiteOverride  = @($MainSection,   'DirectNeuralRenderingDiffuseWhiteOverride')
 }
-$Basic     = @('Model', 'PassCount', 'HookPoint')    # asked always in interactive mode, after on/off
-$IntParams = @('PassCount', 'AutoMask', 'HookPoint', 'UiCorrection', 'Encoding', 'WhiteNits', 'WhiteOverride')
+$Basic     = @('Model', 'PassCount')    # asked always in interactive mode, after on/off; the rest under "Advanced"
+$IntParams = @('PassCount', 'AutoMask', 'Scale', 'UiCorrection', 'Encoding', 'WhiteNits', 'WhiteOverride')
+# Every question reads "<Label> - <what it does> (<values>) [<current>]". Plain words; parameter names stay in -Show.
+$Label = @{
+  Model = 'AI Model'; PassCount = 'Passes'; Scale = 'Add-on resolution scale'
+  Intensity = 'Intensity'; AutoMask = 'Character mask'; GlobalTone = 'Global tone'; LocalTone = 'Local tone'
+  LocalStructure = 'Structure'; SkinStructure = 'Skin structure'; UiCorrection = 'UI correction'; Encoding = 'Colour encoding'
+  WhiteNits = 'Diffuse white'; WhiteOverride = 'White override'
+}
 $Hint = @{
-  Model         = ' (A / B / C)'
-  AutoMask      = ' (0 / 1)'
-  PassCount     = ' (integer)'
-  HookPoint     = ' (1 = known-good for LS)'
-  WhiteOverride = ' (0 / 1)'
+  Model          = ' - the neural model, C is the newest (A/B/C)'
+  PassCount      = ' - how many times the model runs on each frame, every pass costs the same FPS again (1-10, 1 = default)'
+  Scale          = ' - the add-on''s own version of the Cost Scaler, keep 100 while the Cost Scaler is on (percent, 100 = off)'
+  Intensity      = ' - overall strength of the effect (0-1)'
+  AutoMask       = ' - detect characters so their skin gets its own strength (on/off)'
+  GlobalTone     = ' - brightness and contrast changes over the whole frame (0-1)'
+  LocalTone      = ' - contrast changes in small areas (0-1)'
+  LocalStructure = ' - added surface detail (0-1)'
+  SkinStructure  = ' - added detail on detected characters (0-1)'
+  UiCorrection   = ' - keep menus and HUD readable, auto decides from the source (auto, or a number to force it)'
+  Encoding       = ' - how colours are read, leave auto unless the source is HDR (auto, or a number)'
+  WhiteNits      = ' - brightness of white for HDR sources, only used with White override = custom (nits)'
+  WhiteOverride  = ' - use the automatic white level, or the nits above (auto/custom)'
+}
+# Numeric switches shown with their meaning, "0 (auto)", and accepted by name when typed. Names come from the add-on's
+# overlay (Hook Method: Off/Auto/..., UI Correction: Auto/Off/On, Diffuse White: automatic or a custom nits value).
+$ValueNames = @{
+  Encoding      = @{ 0 = 'auto' }
+  UiCorrection  = @{ 0 = 'auto' }
+  WhiteOverride = @{ 0 = 'auto'; 1 = 'custom' }
+  AutoMask      = @{ 0 = 'off'; 1 = 'on' }
 }
 $ModelNames = @('A', 'B', 'C')   # DirectNeuralRenderingStyle 0 / 1 / 2
-# RHI never creates these keys. Missing HookPoint = the add-on has nothing to hook, so LS scales without NR.
-# Written when the key is absent: Enter in the prompts, or any non-interactive run.
-$Suggested = [ordered]@{ Model = 'C'; PassCount = 1; HookPoint = 1 }
+# RHI never creates these keys. Written when the key is absent: Enter in the prompts, or any non-interactive run.
+# (The hook keys are handled by $Required above.)
+$Suggested = [ordered]@{ Model = 'C'; PassCount = 1; Scale = 100 }
 
 # ---- locate Lossless Scaling --------------------------------------------------------------------
 
@@ -277,6 +332,26 @@ function Get-CostScale {
   return $null
 }
 function Format-Scale([double]$v) { return $v.ToString('0.00', $Inv) }
+function Get-ProxyDouble([string]$key) {
+  $v = Get-IniValue $ProxySection $key $proxyLines
+  $d = 0.0
+  if ($v -and [double]::TryParse($v, [Globalization.NumberStyles]::Float, $Inv, [ref]$d)) { return $d }
+  return $null
+}
+function Test-CostScalerAnamorphic { return ((Get-IniValue $ProxySection 'EnableAnamorphic' $proxyLines) -eq '1') }
+function Test-CostScalerAlternating { return ((Get-IniValue $ProxySection 'EnableAlternatingFrames' $proxyLines) -eq '1') }
+function Show-CostScaleState {
+  # "0.75" or "0.65 x 0.85 (anamorphic)", plus ", alternating frames ON"
+  $s = if (Test-CostScalerAnamorphic) {
+    $x = Get-ProxyDouble 'ResolutionScaleX'; $y = Get-ProxyDouble 'ResolutionScaleY'
+    "{0} x {1} (anamorphic)" -f $(if ($null -eq $x) { '?' } else { Format-Scale $x }), $(if ($null -eq $y) { '?' } else { Format-Scale $y })
+  } else {
+    $u = Get-CostScale
+    if ($null -eq $u) { '(missing)' } else { Format-Scale $u }
+  }
+  if (Test-CostScalerAlternating) { $s += ', alternating frames ON' }
+  return $s
+}
 
 # --- add-on on/off through [ADDON] DisabledAddons (comma-separated add-on names) ---
 
@@ -321,12 +396,34 @@ function Convert-ModelInput([string]$s) {
   if ([int]::TryParse($s, [ref]$n) -and $n -ge 0 -and $n -lt $ModelNames.Count) { return $n }
   return $null
 }
+function Show-Named([string]$p, $v) {
+  # "1 (auto)" for switches listed in $ValueNames, plain value otherwise
+  if ($null -eq $v) { return '(missing)' }
+  if ($p -eq 'Model') { return Show-Model $v }
+  $n = 0
+  if ($ValueNames.Contains($p) -and [int]::TryParse([string]$v, [ref]$n) -and $ValueNames[$p].Contains($n)) { return "$v ($($ValueNames[$p][$n]))" }
+  return [string]$v
+}
+function Convert-NamedInput([string]$p, [string]$s) {
+  # "auto" / "off" / "on" / "custom" -> number for switches in $ValueNames, or $null when not a known name
+  if (-not $ValueNames.Contains($p)) { return $null }
+  foreach ($k in $ValueNames[$p].Keys) { if ($ValueNames[$p][$k] -eq $s.Trim().ToLowerInvariant()) { return [int]$k } }
+  return $null
+}
 function Show-Param([string]$p) {
   $sec, $key = $Tunable[$p]; $cur = Get-IniValue $sec $key
-  if ($null -eq $cur -and $Suggested.Contains($p)) { return "(missing, will be set to $($Suggested[$p]))" }
-  if ($p -eq 'Model') { return Show-Model $cur }
-  return Show-Value $cur
+  if ($null -eq $cur -and $Suggested.Contains($p)) { return "(missing, will be set to $(Show-Named $p $Suggested[$p]))" }
+  return Show-Named $p $cur
 }
+function Show-Short([string]$p, $v) {
+  # For prompts and the summary: the word alone ("present", "C"), the number when it has no name, "(missing)" when absent
+  if ($null -eq $v) { return '(missing)' }
+  if ($p -eq 'Model') { $n = 0; if ([int]::TryParse([string]$v, [ref]$n) -and $n -ge 0 -and $n -lt $ModelNames.Count) { return $ModelNames[$n] } }
+  $n = 0
+  if ($ValueNames.Contains($p) -and [int]::TryParse([string]$v, [ref]$n) -and $ValueNames[$p].Contains($n)) { return $ValueNames[$p][$n] }
+  return [string]$v
+}
+function Get-ParamValue([string]$p) { $sec, $key = $Tunable[$p]; return (Get-IniValue $sec $key) }
 
 # --- NGX over-the-air model check: HKLM\...\NGXCore\EnableOTA (absent or 1 = on, 0 = off) ---
 
@@ -356,23 +453,43 @@ function Set-OtaOn([bool]$on) {
 
 # ---- current state -------------------------------------------------------------------------------
 
-function Show-Current {
-  Write-Host "ReShade.ini: $IniPath"
-  $state = if (Test-AddonEnabled) { 'ON' } else { "OFF  (listed in [ADDON] DisabledAddons)" }
-  Write-Host ("Neural rendering add-on `"$AddonName`": $state")
-  $fpsState = if (Test-FpsShown) { 'ON' } else { 'off' }
-  Write-Host ("ReShade FPS counter [$OverlaySection] ShowFPS/ShowFrameTime: $fpsState   (-Fps on|off)")
-  if (Test-CostScalerInstalled) {
-    $csState = if (Test-CostScalerOn) { 'ON' } else { 'off' }
-    $csScale = Get-CostScale
-    $csShown = if ($null -eq $csScale) { '(missing)' } else { Format-Scale $csScale }
-    Write-Host ("NR Cost Scaler [$ProxyIniName]: $csState, internal resolution $csShown   (-CostScaler on|off, -CostScale 0.25-1.00)   for FPS: lower = faster, less detail")
-  } else {
-    Write-Host "NR Cost Scaler: not installed (no $ProxyIniName). Optional, for FPS: turn it on in RHI under Neural Rendering."
+## RHI's "Auto-configure ReShade for FrameGen" installs ReShade as Reshade64.asi behind an ASI loader (winmm.dll). In LS that
+## loader only fires when LS loads winmm.dll, which happens at exit, so ReShade is never there when you press Scale
+## (seen 2026-09-09: ReShade.log "loaded from ...\Reshade64.asi", initialised two seconds before LS closed, no swapchain).
+function Test-AsiLoaderMode {
+  return (Test-Path (Join-Path $LsPath 'Reshade64.asi')) -or (Test-Path (Join-Path $LsPath 'ReShade64.asi'))
+}
+function Warn-AsiLoaderMode {
+  if (Test-AsiLoaderMode) {
+    Write-Warning "ReShade is installed as Reshade64.asi (ASI loader). In LS it loads too late and NR never runs. In RHI: gear next to Remove -> ShortFuse Settings -> 'Auto-configure ReShade for FrameGen' Off -> Save -> Reinstall, then run this again."
   }
-  $otaState = if (Test-OtaOn) { 'on  (driver checks ngx.download.nvidia.com when Scale starts; slow network = long wait)' } else { 'off' }
-  Write-Host ("NGX online model check [HKLM NGXCore] EnableOTA: $otaState   (-Ota on|off, admin)")
+}
+
+## Four lines anyone can read. Shown before the questions and at the top of -Show.
+function Show-Summary {
+  Warn-AsiLoaderMode
+  $nr = if (Test-AddonEnabled) { 'on ' } else { 'OFF' }
+  $passes = Show-Short 'PassCount' (Get-ParamValue 'PassCount')
+  $passWord = if ($passes -eq '1') { 'pass' } else { 'passes' }
+  $scale = Get-ParamValue 'Scale'
+  $scaleTxt = if ($scale -and $scale -ne '100') { "  ·  add-on scale $scale %" } else { '' }
+  Write-Host ("  Neural rendering   {0}  ·  AI Model {1}  ·  {2} {3}  ·  Intensity {4}{5}" -f $nr,
+    (Show-Short 'Model' (Get-ParamValue 'Model')), $passes, $passWord, (Show-Short 'Intensity' (Get-ParamValue 'Intensity')), $scaleTxt)
+  if (Test-CostScalerInstalled) {
+    $cs = if (Test-CostScalerOn) { 'on ' } else { 'off' }
+    Write-Host ("  Cost Scaler        {0}  ·  {1}" -f $cs, (Show-CostScaleState))
+  } else {
+    Write-Host '  Cost Scaler        not installed (optional, for FPS: RHI -> Neural Rendering -> NR Cost Scaler)'
+  }
+  Write-Host ("  FPS counter        {0}" -f $(if (Test-FpsShown) { 'on' } else { 'off' }))
+  Write-Host ("  Online model check {0}" -f $(if (Test-OtaOn) { 'on   (the driver asks NVIDIA for models when Scale starts; on a slow network that is a long wait: -Ota off)' } else { 'off' }))
+}
+
+## Every key the script knows, with its parameter. Debugging view, -Show only.
+function Show-Current {
+  Show-Summary
   Write-Host ''
+  Write-Host "Keys in $IniPath"
   Write-Host "[$MainSection]"
   $byKey = @{}; foreach ($p in $Tunable.Keys) { $byKey[$Tunable[$p][1]] = $p }
   $mainKeys = Get-SectionKeys $MainSection 'DirectNeuralRendering'
@@ -380,9 +497,10 @@ function Show-Current {
   foreach ($k in $mainKeys.Keys) {
     $cur = $mainKeys[$k]
     $tag = ''
+    $shown = Show-Value $cur
     if ($Required.Contains($k)) { $tag = if ($cur -eq $Required[$k]) { '   (required for LS)' } else { "   <- LS needs $($Required[$k])" } }
-    elseif ($byKey.ContainsKey($k)) { $tag = "   (-$($byKey[$k]))" }
-    Write-Host ("  {0,-45} = {1}{2}" -f $k, (Show-Value $cur), $tag)
+    elseif ($byKey.ContainsKey($k)) { $tag = "   (-$($byKey[$k]))"; $shown = Show-Param $byKey[$k] }
+    Write-Host ("  {0,-45} = {1}{2}" -f $k, $shown, $tag)
   }
   Write-Host "[$PresetSection]"
   foreach ($p in $Tunable.Keys) {
@@ -404,8 +522,9 @@ if ($Ota) {
     Set-OtaOn $wantOta
     Write-Host "NGX online model check: $(if ($wantOta) { 'off -> on (EnableOTA removed)' } else { 'on -> off (EnableOTA=0)' }). Takes effect the next time Scale starts."
   }
-  $onlyOta = (-not $Launch) -and (-not $On) -and (-not $Off) -and (-not $Fps) -and (-not $CostScaler) -and
-             (-not $PSBoundParameters.ContainsKey('CostScale')) -and ($requested.Count -eq 0)
+  $onlyOta = (-not $Launch) -and (-not $On) -and (-not $Off) -and (-not $Fps) -and (-not $CostScaler) -and (-not $Alternating) -and
+             (-not $PSBoundParameters.ContainsKey('CostScale')) -and (-not $PSBoundParameters.ContainsKey('CostScaleX')) -and
+             (-not $PSBoundParameters.ContainsKey('CostScaleY')) -and ($requested.Count -eq 0)
   if ($onlyOta) { return }
 }
 
@@ -425,15 +544,22 @@ $wantCostScaler = $null
 if ($CostScaler) { $wantCostScaler = ($CostScaler -eq 'on') }
 $wantCostScale = $null
 if ($PSBoundParameters.ContainsKey('CostScale')) { $wantCostScale = [double]$CostScale }
+$wantCostScaleX = $null
+if ($PSBoundParameters.ContainsKey('CostScaleX')) { $wantCostScaleX = [double]$CostScaleX }
+$wantCostScaleY = $null
+if ($PSBoundParameters.ContainsKey('CostScaleY')) { $wantCostScaleY = [double]$CostScaleY }
+$wantAlternating = $null
+if ($Alternating) { $wantAlternating = ($Alternating -eq 'on') }
 
 function Read-Param([string]$p) {
   # asks once for one parameter; stores into $requested; Enter keeps the current value,
   # or takes the suggested one when the key is not in the ini yet
   $sec, $key = $Tunable[$p]
   $useSuggested = ($null -eq (Get-IniValue $sec $key)) -and $Suggested.Contains($p)
-  $shown = if ($useSuggested) { "$($Suggested[$p]), suggested" } else { Show-Param $p }
+  $shown = if ($useSuggested) { "$(Show-Short $p $Suggested[$p]), suggested" } else { Show-Short $p (Get-IniValue $sec $key) }
+  $label = if ($Label.Contains($p)) { $Label[$p] } else { $p }
   while ($true) {
-    $in = Read-Host ("  {0}{1} [{2}]" -f $p, $Hint[$p], $shown)
+    $in = Read-Host ("  {0}{1} [{2}]" -f $label, $Hint[$p], $shown)
     if ([string]::IsNullOrWhiteSpace($in)) {
       if ($useSuggested) { $script:requested[$p] = $Suggested[$p] }
       return
@@ -442,63 +568,61 @@ function Read-Param([string]$p) {
     if ($p -eq 'Model') {
       $m = Convert-ModelInput $in
       if ($null -ne $m) { $script:requested[$p] = $ModelNames[$m]; return }
-      Write-Host '    A, B or C'; continue
+      Write-Host '    Type A, B or C.'; continue
     }
     if ($p -in $IntParams) {
+      $named = Convert-NamedInput $p $in
+      if ($null -ne $named) { $script:requested[$p] = $named; return }
       $tmp = 0
       if ([int]::TryParse($in, [ref]$tmp)) { $script:requested[$p] = $tmp; return }
+      if ($ValueNames.Contains($p)) { Write-Host ("    Type {0}, or a number." -f (($ValueNames[$p].Values | Sort-Object) -join ' or ')); continue }
     } else {
       $tmp = 0.0
       if ([double]::TryParse($in, [Globalization.NumberStyles]::Float, $Inv, [ref]$tmp)) { $script:requested[$p] = $tmp; return }
     }
-    Write-Host '    not a number, try again'
+    Write-Host '    Type a number, with a dot for decimals (0.7).'
+  }
+}
+
+## on/off question in the same shape as the others: "<Label> - <what it does> (on/off) [<current>]".
+## Returns $true / $false, or $null for Enter.
+function Read-Switch([string]$label, [string]$explain, [bool]$current) {
+  while ($true) {
+    $a = Read-Host ("  {0} - {1} (on/off) [{2}]" -f $label, $explain, $(if ($current) { 'on' } else { 'off' }))
+    if ([string]::IsNullOrWhiteSpace($a)) { return $null }
+    if ($a -match '^(?i)on$')  { return $true }
+    if ($a -match '^(?i)off$') { return $false }
+    Write-Host '    Type on or off.'
   }
 }
 
 if ($Interactive) {
   Assert-LsClosed
-  Show-Current
+  Write-Host 'Current setup'
+  Show-Summary
   Write-Host ''
-  Write-Host 'Type a new value, or press Enter to take the one in brackets (current, or suggested when the key is missing). Decimals use a dot (0.7).'
-  $curState = if (Test-AddonEnabled) { 'on' } else { 'off' }
-  while ($true) {
-    $a = Read-Host ("  Neural rendering (on / off) [{0}]" -f $curState)
-    if ([string]::IsNullOrWhiteSpace($a)) { break }
-    if ($a -match '^(?i)on$')  { $wantEnabled = $true;  break }
-    if ($a -match '^(?i)off$') { $wantEnabled = $false; break }
-    Write-Host '    on or off'
-  }
+  Write-Host 'Enter keeps the value in brackets. The settings LS always needs are written for you.'
+  $wantEnabled = Read-Switch 'Neural rendering' 'the DLSS 5 effect itself' (Test-AddonEnabled)
   foreach ($p in $Basic) { Read-Param $p }
   if (Test-CostScalerInstalled) {
-    Write-Host '  NR Cost Scaler, for FPS: runs the NR model at a lower internal resolution, then rebuilds the output.'
-    $curCs = if (Test-CostScalerOn) { 'on' } else { 'off' }
+    $wantCostScaler = Read-Switch 'Cost Scaler' 'runs the model at a lower resolution for more FPS' (Test-CostScalerOn)
     while ($true) {
-      $a = Read-Host ("  Cost Scaler (on / off) [{0}]" -f $curCs)
+      $a = Read-Host ("  Cost Scaler resolution - lower = more FPS, softer image; two numbers = width height (0.25-1, or 0.65 0.85) [{0}]" -f ((Show-CostScaleState) -replace ', alternating frames ON', ''))
       if ([string]::IsNullOrWhiteSpace($a)) { break }
-      if ($a -match '^(?i)on$')  { $wantCostScaler = $true;  break }
-      if ($a -match '^(?i)off$') { $wantCostScaler = $false; break }
-      Write-Host '    on or off'
-    }
-    $curScale = Get-CostScale
-    $curScaleShown = if ($null -eq $curScale) { '(missing)' } else { Format-Scale $curScale }
-    while ($true) {
-      $a = Read-Host ("  Cost Scaler internal resolution, 0.25-1.00, lower = more FPS [{0}]" -f $curScaleShown)
-      if ([string]::IsNullOrWhiteSpace($a)) { break }
-      $tmp = 0.0
-      if ([double]::TryParse($a.Trim().Replace(',', '.'), [Globalization.NumberStyles]::Float, $Inv, [ref]$tmp) -and $tmp -ge 0.25 -and $tmp -le 1.0) { $wantCostScale = $tmp; break }
-      Write-Host '    a number from 0.25 to 1.00, e.g. 0.75'
+      $parts = @($a.Trim().Replace(',', '.') -split '[\s/x]+' | Where-Object { $_ })
+      $nums = @()
+      foreach ($q in $parts) { $tmp = 0.0; if ([double]::TryParse($q, [Globalization.NumberStyles]::Float, $Inv, [ref]$tmp) -and $tmp -ge 0.25 -and $tmp -le 1.0) { $nums += $tmp } }
+      if ($nums.Count -eq 1 -and $parts.Count -eq 1) { $wantCostScale = $nums[0]; break }
+      if ($nums.Count -eq 2 -and $parts.Count -eq 2) { $wantCostScaleX = $nums[0]; $wantCostScaleY = $nums[1]; break }
+      Write-Host '    Type one number (0.75) or two (0.65 0.85), each between 0.25 and 1.'
     }
   }
-  $curFps = if (Test-FpsShown) { 'on' } else { 'off' }
-  while ($true) {
-    $a = Read-Host ("  ReShade FPS counter on the LS output (on / off) [{0}]" -f $curFps)
-    if ([string]::IsNullOrWhiteSpace($a)) { break }
-    if ($a -match '^(?i)on$')  { $wantFps = $true;  break }
-    if ($a -match '^(?i)off$') { $wantFps = $false; break }
-    Write-Host '    on or off'
-  }
-  $adv = Read-Host '  Advanced keys (intensity, masks, tone, structure, colour...)? [y/N]'
+  $wantFps = Read-Switch 'FPS counter' 'ReShade''s counter in the corner of the LS output' (Test-FpsShown)
+  $adv = Read-Host '  Advanced settings - fine-tuning and HDR, the defaults are fine (y/N)'
   if ($adv -match '^(?i)y') {
+    if (Test-CostScalerInstalled) {
+      $wantAlternating = Read-Switch 'Alternating frames' 'Cost Scaler runs the model on every other frame, more FPS but uneven motion' (Test-CostScalerAlternating)
+    }
     foreach ($p in $Tunable.Keys) { if ($p -notin $Basic) { Read-Param $p } }
   }
 }
@@ -550,39 +674,53 @@ foreach ($p in $requested.Keys) {
     continue
   }
   $new = Format-Num $requested[$p]
-  if ($cur -ne $new) { Set-IniValue $sec $key $new; $changes += "[$sec] ${key}: $(Show-Value $cur) -> $new" }
+  if ($cur -ne $new) { Set-IniValue $sec $key $new; $changes += "[$sec] ${key}: $(Show-Named $p $cur) -> $(Show-Named $p $new)" }
 }
 
 $proxyChanges = @()
-if ($null -ne $wantCostScaler -or $null -ne $wantCostScale) {
+function Set-ProxyValue([string]$key, [string]$new) {
+  $cur = Get-IniValue $ProxySection $key $proxyLines
+  if ($cur -ne $new) { Set-IniValue $ProxySection $key $new $proxyLines; $script:proxyChanges += "[$ProxySection] ${key}: $(Show-Value $cur) -> $new" }
+}
+$touchProxy = ($null -ne $wantCostScaler) -or ($null -ne $wantCostScale) -or ($null -ne $wantCostScaleX) -or ($null -ne $wantCostScaleY) -or ($null -ne $wantAlternating)
+if ($touchProxy) {
   if (-not (Test-CostScalerInstalled)) {
-    Write-Warning "NR Cost Scaler is not installed (no $ProxyIniName in the LS folder). Turn it on in RHI under Neural Rendering, then run this again."
+    Write-Warning "Cost Scaler is not installed. Turn it on in RHI (Neural Rendering -> NR Cost Scaler), then run this again."
   } else {
-    if ($null -ne $wantCostScaler -and $wantCostScaler -ne (Test-CostScalerOn)) {
-      Set-IniValue $ProxySection 'EnableProxy' $(if ($wantCostScaler) { '1' } else { '0' }) $proxyLines
-      $proxyChanges += "[$ProxySection] EnableProxy: $(if ($wantCostScaler) { 'off -> ON' } else { 'ON -> off' })"
-    }
+    if ($null -ne $wantCostScaler) { Set-ProxyValue 'EnableProxy' $(if ($wantCostScaler) { '1' } else { '0' }) }
     if ($null -ne $wantCostScale) {
-      $cur = Get-IniValue $ProxySection 'ResolutionScale' $proxyLines
-      $new = Format-Scale $wantCostScale
-      if ($cur -ne $new) { Set-IniValue $ProxySection 'ResolutionScale' $new $proxyLines; $proxyChanges += "[$ProxySection] ResolutionScale: $(Show-Value $cur) -> $new" }
+      Set-ProxyValue 'ResolutionScale' (Format-Scale $wantCostScale)
+      Set-ProxyValue 'EnableAnamorphic' '0'   # a uniform scale only takes effect with anamorphic off
     }
+    if ($null -ne $wantCostScaleX -or $null -ne $wantCostScaleY) {
+      if ($null -ne $wantCostScaleX) { Set-ProxyValue 'ResolutionScaleX' (Format-Scale $wantCostScaleX) }
+      if ($null -ne $wantCostScaleY) { Set-ProxyValue 'ResolutionScaleY' (Format-Scale $wantCostScaleY) }
+      Set-ProxyValue 'EnableAnamorphic' '1'
+    }
+    if ($null -ne $wantAlternating) { Set-ProxyValue 'EnableAlternatingFrames' $(if ($wantAlternating) { '1' } else { '0' }) }
   }
 }
 
+# Two resamplers, one image: the Cost Scaler proxy and the add-on's own ProcessingScale do the same job.
+$finalCsOn = if ($null -ne $wantCostScaler) { $wantCostScaler } else { (Test-CostScalerInstalled) -and (Test-CostScalerOn) }
+$finalScale = if ($requested.Contains('Scale')) { [string]$requested['Scale'] } else { Get-IniValue $PresetSection 'DirectNeuralRenderingProcessingScale' }
+if ($finalCsOn -and $finalScale -and $finalScale -ne '100') {
+  Write-Warning "Cost Scaler and the add-on's own resolution scale ($finalScale %) are both on, so the image is scaled twice. Turn one off: -CostScaler off, or -Scale 100."
+}
+
 if ($changes.Count -eq 0 -and $proxyChanges.Count -eq 0) {
-  Write-Host 'Nothing to change: values already match.'
+  Write-Host 'Nothing to change.'
 }
 if ($changes.Count -gt 0) {
   [IO.File]::WriteAllLines($IniPath, $lines, (New-Object System.Text.UTF8Encoding($false)))
-  Write-Host "Wrote $($changes.Count) change(s) to $IniPath"
+  Write-Host "Saved to ReShade.ini:"
   $changes | ForEach-Object { Write-Host "  $_" }
 }
 if ($proxyChanges.Count -gt 0) {
   $porig = "$ProxyIniPath.orig"
   if (-not (Test-Path $porig)) { Copy-Item $ProxyIniPath $porig; Write-Host "Original kept at: $porig" }
   [IO.File]::WriteAllLines($ProxyIniPath, $proxyLines, (New-Object System.Text.UTF8Encoding($false)))
-  Write-Host "Wrote $($proxyChanges.Count) change(s) to $ProxyIniPath"
+  Write-Host "Saved to $ProxyIniName (Cost Scaler):"
   $proxyChanges | ForEach-Object { Write-Host "  $_" }
 }
 
@@ -652,7 +790,7 @@ if ($Launch) {
   Start-LS
 } elseif ($Interactive) {
   Write-Host ''
-  $a = Read-Host 'Start Lossless Scaling now? [Y/n]'
+  $a = Read-Host 'Start Lossless Scaling now? (Y/n)'
   if ([string]::IsNullOrWhiteSpace($a) -or $a -match '^[yY]') { Start-LS } else { Write-Host 'Start Lossless Scaling again to apply.' }
 } else {
   Write-Host 'Start Lossless Scaling again to apply (or pass -Launch).'
