@@ -125,7 +125,7 @@ With parameters it asks nothing. `-Launch` starts LS afterwards.
 | Parameter | What it does |
 |---|---|
 | `-On` / `-Off` | NR add-on on or off. |
-| `-Model A\|B\|C` | NR model. |
+| `-Model Default\|Natural\|Cinematic` | NR style. The model's own three names; A, B and C still work. |
 | `-PassCount n` | NR passes per frame, 1 to 10. |
 | `-Scale n` | Resolution the model runs at, percent of the frame. Lower is faster, 100 = original. The FPS dial. |
 | `-Intensity x` | Effect strength, 0 to 1. |
@@ -156,7 +156,7 @@ With parameters it asks nothing. `-Launch` starts LS afterwards.
 
 - **Start LS:** `.\scripts\nr-config.ps1 -Launch`, not Steam ([why](#the-disablehwacceleration-key)). Shortcut target for one click: `powershell -ExecutionPolicy Bypass -File "<repo>\scripts\nr-config.ps1" -Launch`.
 - **Before and after:** toggle Scale, or `-Off -Launch` then `-On -Launch`.
-- **Tune:** close LS, run the script, start LS again. Good start: Model C, 1 pass, Intensity 0.6–0.7, Scale 75.
+- **Tune:** close LS, run the script, start LS again. Good start: Cinematic, 1 pass, Intensity 0.6–0.7, Scale 75.
 - **Update:** RHI → **Reinstall** the rows with a new version, then `-Show` to check the setup survived ([known issues](#known-issues)).
 - **Remove:** RHI → **Remove** on Neural Rendering → **✕** on ReShade. In the LS folder delete the proxy `Lossless.dll`, rename `Lossless_original.dll` back, delete `addons\LSP-Windowed`.
 

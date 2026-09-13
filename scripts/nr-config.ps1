@@ -30,7 +30,8 @@
   nothing is neural-rendered until -On. Cheapest way to A/B.
 
 .PARAMETER Model
-  Neural rendering model: A, B or C (stored as DirectNeuralRenderingStyle 0, 1, 2).
+  Neural rendering style: Default, Natural or Cinematic (stored as DirectNeuralRenderingStyle 0, 1, 2).
+  These are the model's own names for them. The old A / B / C still work and mean the same three.
 
 .PARAMETER Fps
   on / off. Shows ReShade's own FPS and frame-time counter in the corner of the LS output. ReShade
@@ -83,8 +84,8 @@ param(
   [switch]$Launch,
 
   # [RENODX-DLSS-preset1]
-  [ValidatePattern('^(?i)[abc012]$')]
-  [string]$Model,            # DirectNeuralRenderingStyle            A / B / C  (known-good setup: C)
+  [ValidatePattern('^(?i)(default|natural|cinematic|[abc012])$')]
+  [string]$Model,            # DirectNeuralRenderingStyle   Default / Natural / Cinematic  (known-good: Cinematic)
   [double]$Intensity,        # DirectNeuralRenderingIntensity        (known-good setup: 1; start at 0.6-0.7)
   [int]$PassCount,           # DirectNeuralRenderingPassCount
   [int]$AutoMask,            # DirectNeuralRenderingAutoMask         (0 / 1)
@@ -181,10 +182,13 @@ $ValueNames = @{
   WhiteOverride = @{ 0 = 'auto'; 1 = 'custom' }
   AutoMask      = @{ 0 = 'off'; 1 = 'on' }
 }
-$ModelNames = @('A', 'B', 'C')   # DirectNeuralRenderingStyle 0 / 1 / 2
+# DirectNeuralRenderingStyle 0 / 1 / 2, under the model's own names. A / B / C were this script's own labels for
+# them before the naming was known; they are still accepted as input so older command lines keep working.
+$ModelNames = @('Default', 'Natural', 'Cinematic')
+$ModelAliases = @('A', 'B', 'C')
 # RHI never creates these keys. Written when the key is absent: Enter in the prompts, or any non-interactive run.
 # (The hook keys are handled by $Required above.)
-$Suggested = [ordered]@{ Model = 'C'; PassCount = 1; Scale = 100 }
+$Suggested = [ordered]@{ Model = 'Cinematic'; PassCount = 1; Scale = 100 }
 
 # ---- locate Lossless Scaling --------------------------------------------------------------------
 
@@ -311,15 +315,19 @@ function Format-Num($v) {
 function Show-Value($v) { if ($null -eq $v) { '(missing)' } else { $v } }
 function Show-Model($v) {
   if ($null -eq $v) { return '(missing)' }
-  $n = 0
-  if ([int]::TryParse($v, [ref]$n) -and $n -ge 0 -and $n -lt $ModelNames.Count) { return "$v (Model $($ModelNames[$n]))" }
-  return "$v (unknown model)"
+  # $v is normally the ini value, 0/1/2 - but not always: $Suggested.Model is the *name* 'Cinematic', so a key that
+  # is missing from the ini used to preview as "Cinematic (unknown style)". Convert-ModelInput understands all three
+  # spellings (name, the old A/B/C, and the number), so the preview is right whichever one arrives.
+  $n = Convert-ModelInput ([string]$v)
+  if ($null -ne $n) { return "$n ($($ModelNames[$n]))" }
+  return "$v (unknown style)"
 }
 function Convert-ModelInput([string]$s) {
-  # A/B/C or 0/1/2 -> ini value 0/1/2, or $null if not valid
-  $s = $s.Trim().ToUpperInvariant()
-  $i = [array]::IndexOf($ModelNames, $s)
-  if ($i -ge 0) { return $i }
+  # Default/Natural/Cinematic, the old A/B/C, or 0/1/2 -> ini value 0/1/2, or $null if not valid
+  $s = $s.Trim()
+  for ($i = 0; $i -lt $ModelNames.Count; $i++) {
+    if ($s -eq $ModelNames[$i] -or $s -eq $ModelAliases[$i]) { return $i }
+  }
   $n = 0
   if ([int]::TryParse($s, [ref]$n) -and $n -ge 0 -and $n -lt $ModelNames.Count) { return $n }
   return $null
@@ -478,7 +486,7 @@ function Read-Param([string]$p) {
     if ($p -eq 'Model') {
       $m = Convert-ModelInput $in
       if ($null -ne $m) { $script:requested[$p] = $ModelNames[$m]; return }
-      Write-Host '    Type A, B or C.'; continue
+      Write-Host "    Type $($ModelNames -join ', ') - or $($ModelAliases -join '/'), which still work."; continue
     }
     if ($p -in $IntParams) {
       $named = Convert-NamedInput $p $in
@@ -562,7 +570,7 @@ foreach ($p in $requested.Keys) {
   $sec, $key = $Tunable[$p]; $cur = Get-IniValue $sec $key
   if ($p -eq 'Model') {
     $m = Convert-ModelInput ([string]$requested[$p])
-    if ($null -eq $m) { throw "Model must be A, B or C (got '$($requested[$p])')." }
+    if ($null -eq $m) { throw "Model must be one of $($ModelNames -join ', ') (or $($ModelAliases -join '/')), got '$($requested[$p])'." }
     $new = "$m"
     if ($cur -ne $new) { Set-IniValue $sec $key $new; $changes += "[$sec] ${key}: $(Show-Model $cur) -> $(Show-Model $new)" }
     continue

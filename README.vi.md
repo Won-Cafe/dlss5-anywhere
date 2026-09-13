@@ -125,7 +125,7 @@ Có tham số thì không hỏi gì. `-Launch` mở LS sau khi ghi.
 | Tham số | Tác dụng |
 |---|---|
 | `-On` / `-Off` | Bật hoặc tắt add-on NR. |
-| `-Model A\|B\|C` | Model NR. |
+| `-Model Default\|Natural\|Cinematic` | Kiểu NR. Đúng tên của model; A, B, C vẫn dùng được. |
 | `-PassCount n` | Số pass NR mỗi frame, 1 đến 10. |
 | `-Scale n` | Độ phân giải model chạy, phần trăm khung hình. Càng thấp càng nhanh, 100 = như gốc. Đây là nút đổi FPS. |
 | `-Intensity x` | Độ mạnh hiệu ứng, 0 đến 1. |
@@ -156,7 +156,7 @@ Có tham số thì không hỏi gì. `-Launch` mở LS sau khi ghi.
 
 - **Mở LS:** `.\scripts\nr-config.ps1 -Launch`, không mở từ Steam ([vì sao](#khoá-disablehwacceleration)). Shortcut một click: `powershell -ExecutionPolicy Bypass -File "<repo>\scripts\nr-config.ps1" -Launch`.
 - **So trước sau:** bật tắt Scale, hoặc `-Off -Launch` rồi `-On -Launch`.
-- **Chỉnh:** đóng LS, chạy script, mở LS lại. Khởi điểm tốt: Model C, 1 pass, Intensity 0.6–0.7, Scale 75.
+- **Chỉnh:** đóng LS, chạy script, mở LS lại. Khởi điểm tốt: Cinematic, 1 pass, Intensity 0.6–0.7, Scale 75.
 - **Cập nhật:** RHI → **Reinstall** hàng có bản mới, rồi `-Show` để chắc thiết lập còn nguyên ([vấn đề đã biết](#vấn-đề-đã-biết)).
 - **Gỡ:** RHI → **Remove** ở Neural Rendering → **✕** ở ReShade. Trong thư mục LS xóa `Lossless.dll` proxy, đổi tên `Lossless_original.dll` lại, xóa `addons\LSP-Windowed`.
 
