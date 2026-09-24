@@ -7,7 +7,7 @@
   go to the game, not to LS), so everything is done on disk, in ReShade.ini. This script touches
   only the places below and leaves every other line alone:
     [ADDON]  DisabledAddons           - turn the "RenoDX DLSS" add-on on or off
-    [RENODX-DLSS]                     - keys a non-DLSS host needs (RequireDlss, both hook keys: always written), colour/UI handling
+    [RENODX-DLSS]                     - keys a non-DLSS host needs (hook stage and friends: always written), colour/UI handling
     [RENODX-DLSS-preset1]             - the image parameters (model, passes, intensity, the resolution the model runs at, ...)
     [OVERLAY]  ShowFPS, ShowFrameTime  - ReShade's own FPS counter (-Fps), for diagnosis
   and one machine-wide registry value, only when asked with -Ota:
@@ -43,7 +43,7 @@
   The resolution the model runs at (DirectNeuralRenderingProcessingScale), in percent of width and height:
   100 = the original frame, 75 = the model runs on a 75 % frame and its correction is applied back at full resolution.
   Lower is faster, and this is the FPS dial: the neural pass is the expensive part and it shrinks with the square of
-  this number. Needs an add-on build from 2026-09-09 or newer.
+  this number.
 
 .PARAMETER Ota
   on / off. NGX "over the air" check: when a DLSS feature is created, the NVIDIA driver asks
@@ -89,7 +89,6 @@ param(
   [double]$Intensity,        # DirectNeuralRenderingIntensity        (known-good setup: 1; start at 0.6-0.7)
   [int]$PassCount,           # DirectNeuralRenderingPassCount
   [int]$AutoMask,            # DirectNeuralRenderingAutoMask         (0 / 1)
-  [double]$GlobalTone,       # DirectNeuralRenderingGlobalToneStrength
   [double]$LocalTone,        # DirectNeuralRenderingLocalToneStrength
   [double]$LocalStructure,   # DirectNeuralRenderingLocalStructureStrength
   [double]$SkinStructure,    # DirectNeuralRenderingSkinStructureStrength
@@ -119,16 +118,28 @@ if ($On -and $Off) { throw 'Pass either -On or -Off, not both.' }
 
 $AddonName = 'RenoDX DLSS'     # as registered in ReShade.log: Registered add-on "RenoDX DLSS"
 
-# Required for LS (a host without native DLSS). Value taken from a working ReShade.ini, 2026-09-06.
-# Keys that have exactly one right value in LS, written on every run, never asked:
-#   RequireDlss 0  - the add-on agrees to run in a host without native DLSS
-#   HookPoint 1    - "auto", read by add-on builds before 2026-09-09
-#   HookMethod 2   - "present", read by add-on builds from 2026-09-09 (each build ignores the other's key)
+# Required for LS (a host without native DLSS). Keys that have exactly one right value in LS, written on every run,
+# never asked. Each add-on build reads only its own keys and ignores the others, so all of them are written.
+# Values read from the add-on binaries' own option lists:
+#   HookStage 3                   - Present (0 Off, 1 Render, 2 Upscaled, 3 Present). Builds from 2026-09-12.
+#                                   Its default is Off: without this key NR never attaches in LS.
+#   ReuseDlssUpscalingResources 0 - Never (0 Never, 1 Optional, 2 Required): LS has no DLSS motion vectors or depth,
+#                                   so the model runs on dummy inputs. Builds from 2026-09-23.
+#   RequireDlss 0                 - run in a host without native DLSS. Builds up to 2026-09-12.
+#   HookMethod 2                  - Present (0 Off, 1 Upscaled, 2 Present). The 2026-09-09 build only.
 $Required = [ordered]@{
-  'DirectNeuralRenderingRequireDlss' = '0'
-  'DirectNeuralRenderingHookPoint'   = '1'
-  'DirectNeuralRenderingHookMethod'  = '2'
+  'DirectNeuralRenderingHookStage'                   = '3'
+  'DirectNeuralRenderingReuseDlssUpscalingResources' = '0'
+  'DirectNeuralRenderingRequireDlss'                 = '0'
+  'DirectNeuralRenderingHookMethod'                  = '2'
 }
+# Keys that no current add-on build reads. Removed on every write so the ini shows only what counts.
+#   HookPoint           - builds before 2026-09-09
+#   GlobalToneStrength  - builds up to 2026-09-09
+$Obsolete = @(
+  @('RENODX-DLSS', 'DirectNeuralRenderingHookPoint'),
+  @('RENODX-DLSS-preset1', 'DirectNeuralRenderingGlobalToneStrength')
+)
 $MainSection = 'RENODX-DLSS'
 $PresetSection = 'RENODX-DLSS-preset1'
 $OverlaySection = 'OVERLAY'
@@ -141,7 +152,6 @@ $Tunable = [ordered]@{
   Scale          = @($PresetSection, 'DirectNeuralRenderingProcessingScale')
   Intensity      = @($PresetSection, 'DirectNeuralRenderingIntensity')
   AutoMask       = @($PresetSection, 'DirectNeuralRenderingAutoMask')
-  GlobalTone     = @($PresetSection, 'DirectNeuralRenderingGlobalToneStrength')
   LocalTone      = @($PresetSection, 'DirectNeuralRenderingLocalToneStrength')
   LocalStructure = @($PresetSection, 'DirectNeuralRenderingLocalStructureStrength')
   SkinStructure  = @($PresetSection, 'DirectNeuralRenderingSkinStructureStrength')
@@ -155,17 +165,16 @@ $IntParams = @('PassCount', 'AutoMask', 'Scale', 'UiCorrection', 'Encoding', 'Wh
 # Every question reads "<Label> - <what it does> (<values>) [<current>]". Plain words; parameter names stay in -Show.
 $Label = @{
   Model = 'AI Model'; PassCount = 'Passes'; Scale = 'Resolution scale'
-  Intensity = 'Intensity'; AutoMask = 'Character mask'; GlobalTone = 'Global tone'; LocalTone = 'Local tone'
+  Intensity = 'Intensity'; AutoMask = 'Character mask'; LocalTone = 'Local tone'
   LocalStructure = 'Structure'; SkinStructure = 'Skin structure'; UiCorrection = 'UI correction'; Encoding = 'Colour encoding'
   WhiteNits = 'Diffuse white'; WhiteOverride = 'White override'
 }
 $Hint = @{
-  Model          = ' - the neural model, C is the newest (A/B/C)'
+  Model          = ' - the neural model''s style (Default/Natural/Cinematic)'
   PassCount      = ' - how many times the model runs on each frame, every pass costs the same FPS again (1-10, 1 = default)'
   Scale          = ' - runs the model on a smaller frame and puts the detail back at full size, the cheapest way to more FPS (lower is faster, 100 = original)'
   Intensity      = ' - overall strength of the effect (0-1)'
   AutoMask       = ' - detect characters so their skin gets its own strength (on/off)'
-  GlobalTone     = ' - brightness and contrast changes over the whole frame (0-1)'
   LocalTone      = ' - contrast changes in small areas (0-1)'
   LocalStructure = ' - added surface detail (0-1)'
   SkinStructure  = ' - added detail on detected characters (0-1)'
@@ -175,7 +184,7 @@ $Hint = @{
   WhiteOverride  = ' - use the automatic white level, or the nits above (auto/custom)'
 }
 # Numeric switches shown with their meaning, "0 (auto)", and accepted by name when typed. Names come from the add-on's
-# overlay (Hook Method: Off/Auto/..., UI Correction: Auto/Off/On, Diffuse White: automatic or a custom nits value).
+# overlay (UI Correction: Auto/Off/On, Diffuse White: automatic or a custom nits value).
 $ValueNames = @{
   Encoding      = @{ 0 = 'auto' }
   UiCorrection  = @{ 0 = 'auto' }
@@ -273,6 +282,16 @@ function Set-IniValue([string]$section, [string]$key, [string]$value, $L = $line
   $ins = $r[1]
   while ($ins -gt $r[0] + 1 -and $L[$ins - 1].Trim() -eq '') { $ins-- }
   $L.Insert($ins, "$key=$value")
+}
+
+function Remove-IniKey([string]$section, [string]$key, $L = $lines) {
+  # returns $true when the key was there
+  $r = Get-SectionRange $section $L
+  if (-not $r) { return $false }
+  for ($i = $r[0] + 1; $i -lt $r[1]; $i++) {
+    if ($L[$i] -match "^\s*$([regex]::Escape($key))\s*=") { $L.RemoveAt($i); return $true }
+  }
+  return $false
 }
 
 function Get-SectionKeys([string]$section, [string]$prefix, $L = $lines) {
@@ -430,13 +449,13 @@ function Show-Current {
     $shown = Show-Value $cur
     if ($Required.Contains($k)) { $tag = if ($cur -eq $Required[$k]) { '   (required for LS)' } else { "   <- LS needs $($Required[$k])" } }
     elseif ($byKey.ContainsKey($k)) { $tag = "   (-$($byKey[$k]))"; $shown = Show-Param $byKey[$k] }
-    Write-Host ("  {0,-45} = {1}{2}" -f $k, $shown, $tag)
+    Write-Host ("  {0,-48} = {1}{2}" -f $k, $shown, $tag)
   }
   Write-Host "[$PresetSection]"
   foreach ($p in $Tunable.Keys) {
     $sec, $key = $Tunable[$p]
     if ($sec -ne $PresetSection) { continue }
-    Write-Host ("  {0,-45} = {1}   (-{2})" -f $key, (Show-Param $p), $p)
+    Write-Host ("  {0,-48} = {1}   (-{2})" -f $key, (Show-Param $p), $p)
   }
 }
 
@@ -557,6 +576,11 @@ foreach ($k in $Required.Keys) {
     Set-IniValue $MainSection $k $Required[$k]
     $changes += "[$MainSection] ${k}: $(Show-Value $cur) -> $($Required[$k])"
   }
+}
+
+foreach ($o in $Obsolete) {
+  $sec, $key = $o
+  if (Remove-IniKey $sec $key) { $changes += "[$sec] ${key}: removed (no current add-on build reads it)" }
 }
 
 # Fill in the suggested value for keys that are still absent (also on parameter-only runs such as -On -Launch).
