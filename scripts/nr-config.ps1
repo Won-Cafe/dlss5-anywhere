@@ -623,12 +623,17 @@ if ($changes.Count -eq 0) {
 # restoring (terminal closed, reboot), the next launch reads the marker instead of the stale key.
 # The watcher polls Get-Process instead of calling Wait-Process: Steam-launched LS denies the
 # SYNCHRONIZE right, so Wait-Process returns immediately and the key would be restored too early.
+# Each watcher also writes an owner token. A relaunch while an earlier watcher is still waiting takes
+# ownership, so the earlier watcher sees LS exit, finds it no longer owns the key, and leaves it alone
+# instead of restoring it before the new LS instance has started.
 
 $SteamAppId = 993090
 
 $WatcherScript = @'
 $key = 'HKCU:\SOFTWARE\Microsoft\Avalon.Graphics'; $name = 'DisableHWAcceleration'
 $mark = 'DisableHWAcceleration_dlss5anywhere_prev'   # what the key was before we touched it; exists only while a watcher is live
+$owner = 'DisableHWAcceleration_dlss5anywhere_owner' # token of the watcher that restores the key; a newer launch takes it over
+$me = [guid]::NewGuid().ToString()
 if (-not (Test-Path $key)) { New-Item -Path $key -Force | Out-Null }
 $prev = $null
 try { $prev = (Get-ItemProperty -Path $key -Name $name -ErrorAction Stop).$name } catch {}
@@ -638,6 +643,7 @@ $m = $null
 try { $m = (Get-ItemProperty -Path $key -Name $mark -ErrorAction Stop).$mark } catch {}
 if ($null -ne $m) { $prev = if ("$m" -eq 'none') { $null } else { [int]$m } }
 Set-ItemProperty -Path $key -Name $mark -Value $(if ($null -eq $prev) { 'none' } else { "$prev" }) -Type String
+Set-ItemProperty -Path $key -Name $owner -Value $me -Type String
 Set-ItemProperty -Path $key -Name $name -Value 1 -Type DWord
 Start-Process 'steam://rungameid/__APPID__'
 # Wait for LS to appear (Steam may show a dialog first), then wait for it to be gone. Wait-Process is
@@ -651,8 +657,13 @@ while ($gone -lt 10) {
   Start-Sleep -Seconds 1
   if (Get-Process -Name '__PROC__' -ErrorAction SilentlyContinue) { $gone = 0 } else { $gone++ }
 }
+# A newer launch owns the key now: it restores it when its LS instance exits.
+$cur = $null
+try { $cur = (Get-ItemProperty -Path $key -Name $owner -ErrorAction Stop).$owner } catch {}
+if ($cur -ne $me) { return }
 if ($null -eq $prev) { Remove-ItemProperty -Path $key -Name $name -ErrorAction SilentlyContinue } else { Set-ItemProperty -Path $key -Name $name -Value $prev -Type DWord }
 Remove-ItemProperty -Path $key -Name $mark -ErrorAction SilentlyContinue
+Remove-ItemProperty -Path $key -Name $owner -ErrorAction SilentlyContinue
 '@
 
 function Start-LS {
